@@ -77,18 +77,20 @@ export default function PoUploadPage() {
       <PageContainer className="space-y-6">
         <PageHeader
           title="PO Upload"
-          subtitle="Line items: PO, Item Code, Description, Unit Price, PO Amount, PO+LINE+SN (CSV/XLSX). Admins may also use legacy columns: po_number, vendor, total_value."
+          subtitle="Line items: PO, Item Code, Description, Unit Price, PO Amount, PO+LINE+SN (CSV/XLSX). Optional columns Project Name and Department (or Department name) are stored and used to prefill new projects. Admins may also use legacy columns: po_number, vendor, total_value."
         />
 
         {!canUpload ? (
-          <Card className="p-4 text-sm text-rose-300">Only admins and PMs can upload purchase orders.</Card>
+          <Card className="p-4 text-sm text-rose-600 dark:text-rose-300 border-rose-200 dark:border-rose-800/70 bg-rose-50 dark:bg-rose-950/35">
+            Only admins and PMs can upload purchase orders.
+          </Card>
         ) : (
-          <Card className="p-6">
+          <Card className="p-6 border-orange-200/60 dark:border-orange-800/40 bg-gradient-to-br from-[var(--surface)] to-orange-50/30 dark:from-stone-900 dark:to-orange-950/20">
             <form onSubmit={onSubmit} className="space-y-4">
               <div className="space-y-2">
-                <label className="block text-sm font-medium">Select File</label>
+                <label className="block text-sm font-medium text-stone-800 dark:text-stone-200">Select File</label>
                 <Input
-                  className="file:mr-4 file:rounded-lg file:border-0 file:bg-purple-600 file:px-3 file:py-2 file:text-sm file:text-white hover:file:bg-purple-700"
+                  className="file:mr-4 file:rounded-lg file:border-0 file:bg-gradient-to-r file:from-orange-500 file:to-rose-500 file:px-3 file:py-2 file:text-sm file:text-white hover:file:brightness-110 file:cursor-pointer file:shadow-sm"
                   type="file"
                   accept=".csv,.xlsx,.xls"
                   onChange={(e) => setFile(e.target.files?.[0] ?? null)}
@@ -99,12 +101,14 @@ export default function PoUploadPage() {
                 {loading ? 'Uploading...' : 'Upload'}
               </Button>
 
-              {error ? <div className="text-sm text-rose-300">{error}</div> : null}
+              {error ? (
+                <div className="text-sm text-rose-600 dark:text-rose-400">{error}</div>
+              ) : null}
 
               {result?.ok ? (
-                <Card className="p-4 mt-2 border border-emerald-500/30 bg-emerald-950/20 space-y-2">
-                  <div className="text-sm font-medium text-emerald-200">Upload summary</div>
-                  <ul className="text-sm text-slate-200 space-y-1 list-disc pl-5">
+                <Card className="p-4 mt-2 border border-emerald-200 dark:border-emerald-700/80 bg-emerald-50 dark:bg-emerald-950/35 space-y-2 shadow-sm">
+                  <div className="text-sm font-medium text-emerald-900 dark:text-emerald-200">Upload summary</div>
+                  <ul className="text-sm text-emerald-900 dark:text-emerald-200 space-y-1 list-disc pl-5">
                     <li>Total rows: {result.totalRows ?? '—'}</li>
                     <li>Inserted: {result.inserted ?? 0}</li>
                     <li>Updated: {result.updated ?? 0}</li>
@@ -114,7 +118,9 @@ export default function PoUploadPage() {
                     ) : null}
                   </ul>
                   {result.mode === 'legacy_vendor' && result.duplicatesHandled && result.duplicatesHandled.length > 0 ? (
-                    <div className="text-xs text-slate-400">Vendors merged: {result.duplicatesHandled.join(', ')}</div>
+                    <div className="text-xs text-emerald-800/90 dark:text-emerald-300/90">
+                      Vendors merged: {result.duplicatesHandled.join(', ')}
+                    </div>
                   ) : null}
                 </Card>
               ) : null}

@@ -398,7 +398,7 @@ poRouter.get('/', requireRole('admin', 'pm', 'dept_head', 'employee'), async (re
   let q = supabaseAdmin
     .from('purchase_orders')
     .select(
-      'id, po_number, vendor, total_value, remaining_value, uploaded_by, created_at, updated_at, updated_by, po, po_line_sn, item_code, description, unit_price, line_no, department, po_amount, remaining_amount, issue_date, customer',
+      'id, po_number, vendor, total_value, remaining_value, uploaded_by, created_at, updated_at, updated_by, po, po_line_sn, item_code, description, unit_price, line_no, department, project_name, po_amount, remaining_amount, issue_date, customer',
     )
     .order('created_at', { ascending: false })
     .limit(500);

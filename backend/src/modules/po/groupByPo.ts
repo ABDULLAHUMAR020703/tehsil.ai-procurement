@@ -19,6 +19,7 @@ export type PurchaseOrderDbRow = {
   remaining_amount: number | string | null;
   issue_date: string | null;
   customer: string | null;
+  project_name: string | null;
 };
 
 export type PurchaseOrderGroupItem = {
@@ -55,6 +56,10 @@ export type PurchaseOrderGroup = {
   created_at: string;
   /** Max(line.updated_at, line.created_at) for the group. */
   updated_at: string;
+  /** From CSV "Project Name" column on line rows (first non-empty in group). */
+  project_name: string | null;
+  /** From CSV "Department" / "Department name" on line rows (first non-empty in group). */
+  department: string | null;
   items: PurchaseOrderGroupItem[];
 };
 
@@ -141,6 +146,10 @@ export function groupPurchaseOrdersByPo(rows: PurchaseOrderDbRow[]): PurchaseOrd
       sorted.map((r) => r.customer).find((c) => c != null && String(c).trim().length > 0) ?? null;
     const vendor =
       sorted.map((r) => r.vendor).find((v) => v != null && String(v).trim().length > 0) ?? null;
+    const project_name =
+      sorted.map((r) => r.project_name).find((n) => n != null && String(n).trim().length > 0) ?? null;
+    const department =
+      sorted.map((r) => r.department).find((x) => x != null && String(x).trim().length > 0) ?? null;
 
     const createdAt = sorted.reduce((max, r) => (r.created_at > max ? r.created_at : max), sorted[0].created_at);
     const updatedAt = sorted.reduce((max, r) => {
@@ -160,6 +169,8 @@ export function groupPurchaseOrdersByPo(rows: PurchaseOrderDbRow[]): PurchaseOrd
       anchor_po_line_id: sorted[0].id,
       created_at: createdAt,
       updated_at: updatedAt,
+      project_name: project_name != null ? String(project_name).trim() : null,
+      department: department != null ? String(department).trim() : null,
       items: sorted.map(toItem),
     });
   }

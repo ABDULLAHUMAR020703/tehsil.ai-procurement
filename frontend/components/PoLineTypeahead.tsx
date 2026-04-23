@@ -97,11 +97,11 @@ export function PoLineTypeahead({
     const low = selectedLine.effective_remaining < PO_LINE_LOW_REMAINING_PKR;
     return (
       <div className="space-y-2">
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-white/10 bg-[#2a2640]/90 px-3 py-2 text-sm">
-          <span className={low ? 'text-amber-200' : 'text-foreground'}>{formatPoLineOptionLabel(selectedLine)}</span>
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+          <span className={low ? 'text-amber-800 font-medium' : 'text-foreground'}>{formatPoLineOptionLabel(selectedLine)}</span>
           <button
             type="button"
-            className="ml-auto text-xs text-purple-300 underline"
+            className="ml-auto text-xs text-orange-700 dark:text-orange-400 underline font-medium hover:text-orange-900 dark:hover:text-orange-300"
             onClick={() => onSelectLine(null)}
           >
             Change
@@ -118,7 +118,7 @@ export function PoLineTypeahead({
           </div>
         </div>
         {low ? (
-          <p className="text-xs text-amber-200/90">Low remaining on this PO line ({formatPkr(selectedLine.effective_remaining)} available).</p>
+          <p className="text-xs text-amber-800">Low remaining on this PO line ({formatPkr(selectedLine.effective_remaining)} available).</p>
         ) : null}
       </div>
     );
@@ -138,7 +138,7 @@ export function PoLineTypeahead({
       />
       {isFetching ? <p className="text-xs text-muted-foreground">Searching…</p> : null}
       {open && enabled && (
-        <ul className="absolute z-40 mt-1 max-h-64 w-full overflow-auto rounded-lg border border-white/15 bg-[#1e1a30] shadow-xl">
+        <ul className="absolute z-40 mt-1 max-h-64 w-full overflow-auto rounded-lg border border-slate-200 bg-white shadow-lg">
           {lines.length === 0 ? (
             <li className="px-3 py-2 text-xs text-muted-foreground">No matching lines</li>
           ) : (
@@ -148,8 +148,8 @@ export function PoLineTypeahead({
                 <li key={line.po_line_sn}>
                   <button
                     type="button"
-                    className={`w-full px-3 py-2 text-left text-xs hover:bg-white/10 ${
-                      low ? 'border-l-2 border-amber-500 bg-amber-950/20' : 'border-l-2 border-transparent'
+                    className={`w-full px-3 py-2 text-left text-xs text-slate-900 hover:bg-slate-50 ${
+                      low ? 'border-l-2 border-amber-500 bg-amber-50' : 'border-l-2 border-transparent'
                     }`}
                     onClick={() => {
                       onSelectLine(line);

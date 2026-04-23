@@ -193,7 +193,9 @@ export default function ProjectDetailPage() {
 
         {isLoading ? <Card className="p-4 text-sm text-muted-foreground">Loading…</Card> : null}
         {error ? (
-          <Card className="p-4 text-sm text-rose-300">{error instanceof Error ? error.message : 'Failed to load'}</Card>
+          <Card className="p-4 text-sm text-rose-600 border-rose-200 bg-rose-50">
+            {error instanceof Error ? error.message : 'Failed to load'}
+          </Card>
         ) : null}
 
         {p ? (
@@ -225,7 +227,7 @@ export default function ProjectDetailPage() {
               <div className="text-muted-foreground">Budget (no-PO or reference): {formatPkr(Number(p.budget))}</div>
               <div className="text-muted-foreground">Exception flag: {p.is_exception ? 'Yes' : 'No'}</div>
 
-              <div className="border-t border-white/10 pt-3 mt-3">
+              <div className="border-t border-slate-200 pt-3 mt-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 className="text-base font-medium text-foreground">Assigned employees</h3>
                   {canManageMembers ? (
@@ -240,10 +242,10 @@ export default function ProjectDetailPage() {
                       <li className="text-muted-foreground">No employees assigned (legacy projects may rely on department access).</li>
                     ) : (
                       (p.assigned_employees ?? []).map((u) => (
-                        <li key={u.id} className="rounded border border-white/10 px-3 py-2">
+                        <li key={u.id} className="rounded border border-slate-200 bg-slate-50/80 px-3 py-2">
                           <span className="text-foreground">{u.name ?? u.email}</span>
                           {u.job_title ? (
-                            <span className="ml-2 text-[11px] uppercase tracking-wide text-amber-200/80">{u.job_title}</span>
+                            <span className="ml-2 text-[11px] uppercase tracking-wide text-amber-700">{u.job_title}</span>
                           ) : null}
                           <span className="text-xs text-muted-foreground ml-2">{u.email}</span>
                         </li>
@@ -258,19 +260,19 @@ export default function ProjectDetailPage() {
                       onChange={(e) => setEmployeeSearch(e.target.value)}
                       className="text-sm"
                     />
-                    <div className="max-h-[220px] overflow-y-auto rounded border border-white/10 divide-y divide-white/5">
+                    <div className="max-h-[220px] overflow-y-auto rounded border border-slate-200 divide-y divide-slate-100 bg-white">
                       {filteredPool.map((u) => (
-                        <label key={u.id} className="flex items-start gap-3 px-3 py-2 cursor-pointer hover:bg-white/5">
+                        <label key={u.id} className="flex items-start gap-3 px-3 py-2 cursor-pointer hover:bg-slate-50">
                           <input
                             type="checkbox"
-                            className="mt-1 h-4 w-4 rounded border border-white/20 bg-[#2a2640]"
+                            className="mt-1 h-4 w-4 rounded border border-slate-300 bg-white"
                             checked={selectedMembers.has(u.id)}
                             onChange={(e) => toggleMember(u.id, e.target.checked)}
                           />
                           <span>
                             {u.name ?? u.email}
                             {u.job_title ? (
-                              <span className="ml-2 text-[11px] uppercase text-amber-200/80">{u.job_title}</span>
+                              <span className="ml-2 text-[11px] uppercase text-amber-700">{u.job_title}</span>
                             ) : null}
                           </span>
                         </label>

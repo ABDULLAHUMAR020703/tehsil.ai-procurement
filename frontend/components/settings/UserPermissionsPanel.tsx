@@ -147,8 +147,8 @@ export function UserPermissionsPanel({ supabase, users: usersProp, isLoading, er
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-white">User permissions</h2>
-          <p className="text-xs text-slate-400 mt-1 max-w-2xl">
+          <h2 className="text-lg font-semibold text-stone-900 dark:text-stone-50">User permissions</h2>
+          <p className="text-xs text-muted-foreground mt-1 max-w-2xl">
             Fine-grained access on top of roles. Admins always have full access. Use Save to apply all pending changes.
           </p>
         </div>
@@ -165,16 +165,18 @@ export function UserPermissionsPanel({ supabase, users: usersProp, isLoading, er
       {isLoading ? (
         <Card className="p-4 text-sm text-muted-foreground">Loading users…</Card>
       ) : error ? (
-        <Card className="p-4 text-sm text-rose-300">
+        <Card className="p-4 text-sm text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-800/60 bg-rose-50 dark:bg-rose-950/40">
           {error instanceof Error ? error.message : 'Failed to load permissions'}
         </Card>
       ) : (
-        <Card className="p-0 overflow-hidden border border-white/10">
-          <TableWrapper className="max-h-[min(70vh,640px)] overflow-auto">
+        <Card className="p-0 overflow-hidden border border-stone-200/90 dark:border-stone-600/70">
+          <TableWrapper className="scrollbar-warm max-h-[min(70vh,640px)] overflow-auto">
             <Table>
-              <THead className="sticky top-0 z-20 bg-[#121124]/95 backdrop-blur-md border-b border-white/10 shadow-[0_1px_0_rgba(255,255,255,0.06)]">
+              <THead className="sticky top-0 z-20 bg-stone-100/98 dark:bg-stone-800/98 backdrop-blur-md border-b border-stone-200/90 dark:border-stone-600/70">
                 <TR>
-                  <TH className="min-w-[140px] sticky left-0 z-30 bg-[#121124]/95 backdrop-blur-md">User</TH>
+                  <TH className="min-w-[140px] sticky left-0 z-30 bg-stone-100/98 dark:bg-stone-800/98 backdrop-blur-md border-r border-stone-200/80 dark:border-stone-600/60">
+                    User
+                  </TH>
                   <TH className="min-w-[96px]">Role</TH>
                   <TH className="min-w-[100px]">Department</TH>
                   {PERMISSION_COLUMNS.map((col) => (
@@ -182,12 +184,14 @@ export function UserPermissionsPanel({ supabase, users: usersProp, isLoading, er
                       <label className="flex flex-col items-center gap-1 cursor-pointer select-none">
                         <input
                           type="checkbox"
-                          className="rounded border-white/20 bg-[#2a2640]"
+                          className="rounded border-stone-400 dark:border-stone-500 bg-[var(--surface)] dark:bg-stone-900 accent-orange-600"
                           checked={columnAllChecked(col.id)}
                           onChange={(e) => toggleColumnAll(col.id, e.target.checked)}
                           title="Select all in column"
                         />
-                        <span className="text-[10px] leading-tight font-medium text-slate-300">{col.label}</span>
+                        <span className="text-[10px] leading-tight font-medium text-stone-700 dark:text-stone-300">
+                          {col.label}
+                        </span>
                       </label>
                     </TH>
                   ))}
@@ -200,15 +204,15 @@ export function UserPermissionsPanel({ supabase, users: usersProp, isLoading, er
                   return (
                     <TR
                       key={u.user_id}
-                      className="hover:bg-white/[0.04] transition-colors border-b border-white/5"
+                      className="hover:bg-orange-50/60 dark:hover:bg-stone-800/50 transition-colors border-b border-stone-100 dark:border-stone-700/80"
                     >
-                      <TD className="sticky left-0 z-10 bg-[#1a1730]/90 backdrop-blur-sm font-medium text-slate-100">
+                      <TD className="sticky left-0 z-10 bg-[var(--surface)] dark:bg-stone-900/98 backdrop-blur-sm font-medium text-stone-900 dark:text-stone-100 border-r border-stone-200/80 dark:border-stone-600/60">
                         <div>{u.name}</div>
                       </TD>
                       <TD className="align-middle">
                         <RoleBadge role={u.role} />
                       </TD>
-                      <TD className="text-xs text-slate-400 capitalize">{u.department}</TD>
+                      <TD className="text-xs text-stone-600 dark:text-stone-400 capitalize">{u.department}</TD>
                       {PERMISSION_COLUMNS.map((col) => {
                         const checked = u.is_admin ? true : perms.includes(col.id);
                         return (
@@ -222,7 +226,7 @@ export function UserPermissionsPanel({ supabase, users: usersProp, isLoading, er
                                 disabled={u.is_admin || rowBusy}
                                 checked={checked}
                                 onChange={() => toggle(u.user_id, col.id, u.is_admin)}
-                                className="rounded border-white/20 bg-[#2a2640] disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+                                className="rounded border-stone-400 dark:border-stone-500 bg-[var(--surface)] dark:bg-stone-900 accent-orange-600 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
                                 aria-label={`${col.label} for ${u.name}`}
                               />
                             </span>

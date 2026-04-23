@@ -41,10 +41,11 @@ export function LastUpdatedMeta({
   return (
     <div className="text-[11px] text-muted-foreground space-y-0.5 leading-snug">
       <div>
-        Last updated by: <span className="text-foreground">{hasUser ? name : '—'}</span>
+        Last updated by:{' '}
+        <span className="text-stone-900 dark:text-stone-100 font-medium">{hasUser ? name : '—'}</span>
       </div>
       <div>
-        At: <span className="text-foreground">{at ? new Date(at).toLocaleString() : '—'}</span>
+        At: <span className="text-stone-900 dark:text-stone-100 font-medium">{at ? new Date(at).toLocaleString() : '—'}</span>
       </div>
     </div>
   );
@@ -65,23 +66,25 @@ export function LastUpdatedPanel({ updatedAt, updatedBy, onViewHistory, classNam
   const who = hasActor ? `${displayName(updatedBy)} (${formatRole(updatedBy?.role)})` : null;
 
   return (
-    <div className={`rounded-lg border border-white/10 bg-[#2a2640]/60 px-4 py-3 text-sm space-y-2 ${className ?? ''}`}>
+    <div
+      className={`rounded-lg border border-stone-200 dark:border-stone-600 bg-stone-50/90 dark:bg-stone-800/50 px-4 py-3 text-sm space-y-2 ${className ?? ''}`}
+    >
       {notYet ? (
         <div className="text-muted-foreground">Not updated yet</div>
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-2">
             {recent ? (
-              <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-xs font-medium text-amber-200">
+              <span className="rounded-full bg-amber-100 dark:bg-amber-950/50 px-2 py-0.5 text-xs font-semibold text-amber-900 dark:text-amber-200 border border-amber-200 dark:border-amber-800/70">
                 Recently updated
               </span>
             ) : null}
           </div>
           <div className="text-muted-foreground">
-            Last updated by: <span className="text-foreground">{who ?? '—'}</span>
+            Last updated by: <span className="text-stone-900 dark:text-stone-100 font-medium">{who ?? '—'}</span>
           </div>
           <div className="text-muted-foreground">
-            At: <span className="text-foreground">{when ?? '—'}</span>
+            At: <span className="text-stone-900 dark:text-stone-100 font-medium">{when ?? '—'}</span>
           </div>
         </>
       )}

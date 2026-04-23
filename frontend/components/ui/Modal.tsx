@@ -39,7 +39,7 @@ export function Modal({ open, onClose, title, children, className }: ModalProps)
         >
           <button
             type="button"
-            className="absolute inset-0 bg-black/65 backdrop-blur-sm"
+            className="absolute inset-0 bg-stone-900/50 dark:bg-black/60 backdrop-blur-[2px]"
             aria-label="Close dialog"
             onClick={onClose}
           />
@@ -52,13 +52,16 @@ export function Modal({ open, onClose, title, children, className }: ModalProps)
             exit={{ opacity: 0, scale: 0.96, y: 10 }}
             transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
             className={cn(
-              'relative z-10 w-full max-w-md rounded-xl border border-purple-500/35 bg-[#121124] shadow-[0_0_40px_rgba(147,51,234,0.12)]',
+              'relative z-10 w-full max-w-md rounded-xl border border-stone-200 dark:border-stone-600 bg-[var(--surface)] dark:bg-stone-900 shadow-xl shadow-stone-300/25 dark:shadow-stone-950/50',
               className,
             )}
             onClick={(e) => e.stopPropagation()}
           >
             {title ? (
-              <h2 id="modal-title" className="border-b border-white/10 px-5 py-4 text-base font-semibold text-white">
+              <h2
+                id="modal-title"
+                className="border-b border-stone-100 dark:border-stone-700 px-5 py-4 text-base font-semibold text-stone-900 dark:text-stone-50"
+              >
                 {title}
               </h2>
             ) : null}

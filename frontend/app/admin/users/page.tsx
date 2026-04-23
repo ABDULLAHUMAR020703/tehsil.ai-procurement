@@ -88,7 +88,10 @@ export default function AdminUsersPage() {
     return (
       <AppLayout>
         <PageContainer className="space-y-4">
-          <Card className="p-6 text-sm text-rose-300">Access denied.</Card>
+          <PageHeader title="Users" subtitle="Admin only" />
+          <Card className="p-6 text-sm text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-800/60 bg-rose-50 dark:bg-rose-950/40">
+            Access denied.
+          </Card>
         </PageContainer>
       </AppLayout>
     );
@@ -100,14 +103,16 @@ export default function AdminUsersPage() {
         <PageHeader title="Users" subtitle="Assign roles and departments. Admins are always in management." />
 
         {isLoading ? (
-          <Card className="p-4 text-sm text-muted-foreground">Loading…</Card>
+          <Card className="p-4 text-sm text-stone-600 dark:text-stone-400 border-stone-200/90 dark:border-stone-600/70">
+            Loading…
+          </Card>
         ) : error ? (
-          <Card className="p-4 text-sm text-rose-300">
+          <Card className="p-4 text-sm text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-800/60 bg-rose-50 dark:bg-rose-950/40">
             {error instanceof Error ? error.message : 'Failed to load users'}
           </Card>
         ) : (
-          <Card className="p-0">
-            <TableWrapper className="max-h-[560px] overflow-y-auto rounded-xl border border-white/10">
+          <Card className="p-0 overflow-hidden border-stone-200/90 dark:border-stone-600/70">
+            <TableWrapper className="scrollbar-warm max-h-[min(560px,70vh)] overflow-y-auto bg-orange-50/25 dark:bg-stone-900/35">
               <Table>
                 <THead>
                   <TR>
@@ -115,19 +120,26 @@ export default function AdminUsersPage() {
                     <TH>Email</TH>
                     <TH>Role</TH>
                     <TH>Department</TH>
-                    <TH>Save</TH>
+                    <TH className="text-right">Save</TH>
                   </TR>
                 </THead>
                 <TBody>
+                  {(data?.users ?? []).length === 0 ? (
+                    <TR>
+                      <TD colSpan={5} className="py-10 text-center text-sm text-stone-600 dark:text-stone-400">
+                        No users found.
+                      </TD>
+                    </TR>
+                  ) : null}
                   {(data?.users ?? []).map((u) => {
                     const edit = localEdits[u.id] ?? { role: u.role, department: u.department as Department };
                     return (
                       <TR key={u.id}>
-                        <TD>{u.name}</TD>
-                        <TD className="text-xs text-muted-foreground">{u.email}</TD>
+                        <TD className="font-medium text-stone-900 dark:text-stone-100">{u.name}</TD>
+                        <TD className="text-xs text-stone-600 dark:text-stone-400">{u.email}</TD>
                         <TD>
                           <select
-                            className="rounded-lg border border-white/10 bg-[#2a2640] px-2 py-1 text-xs"
+                            className="w-full min-w-[100px] max-w-[140px] rounded-lg border border-stone-200 dark:border-stone-600 bg-[var(--surface)] dark:bg-stone-900 px-2 py-1.5 text-xs text-stone-900 dark:text-stone-100 shadow-sm outline-none focus:ring-2 focus:ring-orange-500/25 dark:focus:ring-orange-400/25 focus:border-orange-400 dark:focus:border-orange-500"
                             value={edit.role}
                             onChange={(e) =>
                               setLocalEdits((prev) => ({
@@ -145,7 +157,7 @@ export default function AdminUsersPage() {
                         </TD>
                         <TD>
                           <select
-                            className="rounded-lg border border-white/10 bg-[#2a2640] px-2 py-1 text-xs capitalize"
+                            className="rounded-lg border border-stone-200 dark:border-stone-600 bg-[var(--surface)] dark:bg-stone-900 px-2 py-1 text-xs text-stone-900 dark:text-stone-100 capitalize outline-none focus:ring-2 focus:ring-orange-500/25 focus:border-orange-400 dark:focus:border-orange-500"
                             value={edit.role === 'admin' ? 'management' : edit.department}
                             disabled={edit.role === 'admin'}
                             onChange={(e) =>
@@ -162,11 +174,11 @@ export default function AdminUsersPage() {
                             ))}
                           </select>
                         </TD>
-                        <TD>
+                        <TD className="text-right">
                           <Button
                             type="button"
                             variant="secondary"
-                            className="text-xs px-2 py-1"
+                            className="text-xs px-3 py-1.5 border-stone-200 dark:border-stone-600 hover:border-orange-300 dark:hover:border-orange-600 hover:bg-orange-50/80 dark:hover:bg-orange-950/35"
                             disabled={patchMutation.isPending || (edit.role === u.role && edit.department === u.department)}
                             onClick={() => {
                               const payload: { id: string; role?: UserRole; department?: Department } = { id: u.id };
@@ -190,7 +202,7 @@ export default function AdminUsersPage() {
           </Card>
         )}
         {patchMutation.error ? (
-          <Card className="p-3 text-sm text-rose-300">
+          <Card className="p-3 text-sm text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-800/60 bg-rose-50 dark:bg-rose-950/40">
             {patchMutation.error instanceof ApiError
               ? patchMutation.error.message
               : String(patchMutation.error)}

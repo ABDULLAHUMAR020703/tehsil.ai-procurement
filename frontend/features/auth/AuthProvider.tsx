@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { Session, SupabaseClient } from '@supabase/supabase-js';
 import { useQueryClient } from '@tanstack/react-query';
-import { getBrowserSupabase } from '../../lib/supabase-browser';
+import { getBrowserSupabase, getSupabaseBrowserConfigError } from '../../lib/supabase-browser';
 import type { AppPermissionId } from '@/lib/permissions';
 import { APP_PERMISSION_IDS } from '@/lib/permissions';
 
@@ -24,6 +24,8 @@ export type UserProfile = {
 
 type AuthContextValue = {
   supabase: SupabaseClient | null;
+  /** Set when NEXT_PUBLIC_* Supabase vars are missing or wrong (e.g. service_role in browser). */
+  supabaseConfigError: string | null;
   session: Session | null;
   accessToken: string | null;
   profile: UserProfile | null;
@@ -51,6 +53,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const accessToken = session?.access_token ?? null;
 
+  const supabaseConfigError = useMemo(() => getSupabaseBrowserConfigError(), []);
   const supabase = useMemo(() => getBrowserSupabase(), []);
 
   const refreshProfile = async () => {
@@ -136,7 +139,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       mounted = false;
       sub.subscription.unsubscribe();
     };
-  }, [queryClient]);
+  }, [queryClient, supabase]);
 
   useEffect(() => {
     if (!accessToken) {
@@ -152,18 +155,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<AuthContextValue>(
     () => ({
       supabase,
+      supabaseConfigError,
       session,
       accessToken,
       profile,
       loading,
       signIn: async ({ email, password }) => {
-        if (!supabase) throw new Error('Supabase is not configured (missing env vars)');
+        if (!supabase) {
+          throw new Error(
+            supabaseConfigError ?? 'Supabase is not configured. Check frontend/.env and restart Next.js.',
+          );
+        }
         const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
+        if (error) {
+          if (error.message === 'Invalid API key') {
+            throw new Error(
+              'Invalid API key: use the anon public key in frontend/.env as NEXT_PUBLIC_SUPABASE_ANON_KEY (not the service_role key).',
+            );
+          }
+          throw error;
+        }
         await queryClient.invalidateQueries();
       },
       signOut: async () => {
-        if (!supabase) throw new Error('Supabase is not configured (missing env vars)');
+        if (!supabase) {
+          throw new Error(
+            supabaseConfigError ?? 'Supabase is not configured. Check frontend/.env and restart Next.js.',
+          );
+        }
         const { error } = await supabase.auth.signOut();
         if (error) throw error;
         queryClient.clear();
@@ -171,7 +190,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       refreshProfile,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [supabase, session, profile, loading, accessToken, queryClient],
+    [supabase, supabaseConfigError, session, profile, loading, accessToken, queryClient],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -1,5 +1,35 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Warm CRM-inspired palette (cream + coral / terracotta) — light */
+:root {
+  --background: #faf6f3;
+  --surface: #fffdfb;
+  --surface-muted: #fdf8f5;
+  --border: #e7ddd4;
+  --foreground: #1c1917;
+  --muted: #78716c;
+  --primary: #ea580c;
+  --primary-hover: #c2410c;
+  --accent-soft: #ffedd5;
+  --grid-opacity: 0.055;
+}
+
+/* Warm dark — charcoal with amber/coral accents */
+.dark {
+  --background: #0c0a09;
+  --surface: #1c1917;
+  --surface-muted: #292524;
+  --border: #44403c;
+  --foreground: #fafaf9;
+  --muted: #a8a29e;
+  --primary: #fb923c;
+  --primary-hover: #fdba74;
+  --accent-soft: rgba(251, 146, 60, 0.15);
+  --grid-opacity: 0.09;
+}
+
 html,
 body {
   height: 100%;
@@ -7,17 +37,67 @@ body {
 }
 
 body {
-  background: #0f0f1a;
-  color: #f8fafc;
+  background: var(--background);
+  color: var(--foreground);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.35s ease, color 0.25s ease;
 }
 
 @layer utilities {
   .bg-card {
-    background-color: #1e1b2e;
+    background-color: var(--surface);
   }
 
   .text-muted-foreground {
-    color: #94a3b8;
+    color: var(--muted);
+  }
+
+  .text-foreground {
+    color: var(--foreground);
+  }
+
+  .border-border {
+    border-color: var(--border);
+  }
+
+  .form-control-light {
+    @apply w-full rounded-lg border border-stone-200 bg-[var(--surface)] px-3 py-2 text-sm text-stone-900 shadow-sm placeholder:text-stone-400;
+    @apply outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-500/20;
+  }
+
+  .dark .form-control-light {
+    @apply border-stone-600 bg-stone-900/90 text-stone-100 placeholder:text-stone-500;
+    @apply focus:border-orange-500 focus:ring-orange-400/25;
+  }
+
+  /* Themed scrollbars (e.g. settings tables) — avoids harsh default light thumbs in dark mode */
+  .scrollbar-warm {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) var(--surface-muted);
+  }
+
+  .scrollbar-warm::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .scrollbar-warm::-webkit-scrollbar-track {
+    background: var(--surface-muted);
+    border-radius: 9999px;
+  }
+
+  .scrollbar-warm::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 9999px;
+    border: 2px solid var(--surface-muted);
+  }
+
+  .scrollbar-warm::-webkit-scrollbar-thumb:hover {
+    background: #d6d3d1;
+  }
+
+  .dark .scrollbar-warm::-webkit-scrollbar-thumb:hover {
+    background: #57534e;
   }
 }
-

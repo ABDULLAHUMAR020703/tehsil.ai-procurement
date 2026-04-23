@@ -4,7 +4,11 @@ import { supabaseAdmin } from '../../config/supabase';
 import { AppError } from '../../utils/errors';
 import { startApprovalsForPurchaseRequest } from '../approvals/engine';
 import { recordTrackedAction } from '../auditLogs/trackedAction';
-import type { UserRole } from '../auth/types';
+import {
+  bypassesDepartmentScope,
+  isDeptManagerRole,
+  type UserRole,
+} from '../auth/types';
 import { normalizeItemCode } from '../../utils/itemCode';
 import {
   poLineMatchesProjectAnchor,
@@ -12,7 +16,7 @@ import {
   sumPendingAmountOnPoLine,
   type PoAnchor,
 } from './poLineContext';
-import { assertActorMaySubmitPurchaseRequestForProject } from '../projects/projectAccess';
+import { assertActorMaySubmitPurchaseRequestForProject, fetchProjectForAccess } from '../projects/projectAccess';
 
 export { normalizeItemCode } from '../../utils/itemCode';
 
@@ -295,6 +299,59 @@ export async function createPurchaseRequest(params: {
   await startApprovalsForPurchaseRequest(pr.id, createdBy);
 
   return { pr };
+}
+
+export async function deletePurchaseRequest(params: {
+  requestId: string;
+  actorUserId: string;
+  actorRole: UserRole;
+  actorDepartment: string | null;
+}) {
+  const { requestId, actorUserId, actorRole, actorDepartment } = params;
+
+  if (actorRole === 'employee') {
+    throw new AppError('Forbidden', 403);
+  }
+
+  const { data: pr, error: prErr } = await supabaseAdmin
+    .from('purchase_requests')
+    .select('id, project_id, status, budget_deducted, created_by')
+    .eq('id', requestId)
+    .maybeSingle();
+  if (prErr) throw prErr;
+  if (!pr) throw new AppError('Purchase request not found', 404);
+
+  if (pr.status === 'approved' || pr.budget_deducted === true) {
+    throw new AppError('Cannot delete an approved purchase request that affected budget', 409);
+  }
+
+  const project = await fetchProjectForAccess(pr.project_id as string);
+
+  if (!bypassesDepartmentScope(actorRole)) {
+    if (!isDeptManagerRole(actorRole)) {
+      throw new AppError('Forbidden', 403);
+    }
+    if (!actorDepartment || actorDepartment !== project.department_id) {
+      throw new AppError('You can only delete purchase requests for projects in your department', 403);
+    }
+  }
+
+  const { error: delErr } = await supabaseAdmin.from('purchase_requests').delete().eq('id', requestId);
+  if (delErr) throw delErr;
+
+  await recordTrackedAction({
+    audit: {
+      action: 'purchase_request_deleted',
+      userId: actorUserId,
+      entity: 'purchase_request',
+      entityType: 'purchase_request',
+      entityId: requestId,
+      changes: { project_id: pr.project_id, status: pr.status },
+      departmentScope: project.department_id,
+    },
+  });
+
+  return { ok: true as const };
 }
 
 

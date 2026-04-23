@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../features/auth/AuthProvider';
@@ -44,18 +44,14 @@ export default function SettingsPage() {
     },
   });
 
-  useEffect(() => {
-    if (activeTab === 'permissions' && permissionsData) {
-      console.log('PERMISSIONS DATA:', permissionsData);
-    }
-  }, [activeTab, permissionsData]);
-
   if (!loading && profile && profile.role !== 'admin') {
     return (
       <AppLayout>
         <PageContainer className="space-y-4">
           <PageHeader title="Settings" subtitle="Organization configuration" />
-          <Card className="p-6 text-sm text-rose-300">Access denied.</Card>
+          <Card className="p-6 text-sm text-rose-600 dark:text-rose-300 border-rose-200 dark:border-rose-800/70 bg-rose-50 dark:bg-rose-950/35">
+            Access denied.
+          </Card>
         </PageContainer>
       </AppLayout>
     );
@@ -66,15 +62,15 @@ export default function SettingsPage() {
       <PageContainer className="space-y-8">
         <PageHeader title="Settings" subtitle="Manage organization structure and preferences" />
 
-        <div className="flex flex-wrap gap-2 border-b border-white/10 pb-1">
+        <div className="flex flex-wrap gap-2 border-b border-stone-200 dark:border-stone-700 pb-1">
           <button
             type="button"
             onClick={() => setActiveTab('departments')}
             className={cn(
               'rounded-t-lg px-4 py-2 text-sm font-medium transition-all border-b-2 -mb-px',
               activeTab === 'departments'
-                ? 'border-purple-500 text-white bg-purple-500/10 shadow-[0_0_20px_rgba(147,51,234,0.12)]'
-                : 'border-transparent text-slate-400 hover:text-slate-200',
+                ? 'border-orange-500 text-orange-950 dark:text-orange-100 bg-orange-50 dark:bg-orange-950/40 shadow-sm'
+                : 'border-transparent text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200',
             )}
           >
             Departments
@@ -85,8 +81,8 @@ export default function SettingsPage() {
             className={cn(
               'rounded-t-lg px-4 py-2 text-sm font-medium transition-all border-b-2 -mb-px',
               activeTab === 'permissions'
-                ? 'border-purple-500 text-white bg-purple-500/10 shadow-[0_0_20px_rgba(147,51,234,0.12)]'
-                : 'border-transparent text-slate-400 hover:text-slate-200',
+                ? 'border-orange-500 text-orange-950 dark:text-orange-100 bg-orange-50 dark:bg-orange-950/40 shadow-sm'
+                : 'border-transparent text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200',
             )}
           >
             Permissions
@@ -94,18 +90,22 @@ export default function SettingsPage() {
           <button
             type="button"
             disabled
-            className="rounded-t-lg px-4 py-2 text-sm font-medium text-slate-500 cursor-not-allowed opacity-60 border-b-2 border-transparent"
+            className="rounded-t-lg px-4 py-2 text-sm font-medium text-stone-400 dark:text-stone-500 cursor-not-allowed opacity-70 border-b-2 border-transparent"
           >
             Users
-            <span className="ml-2 text-[10px] uppercase tracking-wider text-slate-600">Soon</span>
+            <span className="ml-2 text-[10px] uppercase tracking-wider text-stone-500 dark:text-stone-500">
+              Soon
+            </span>
           </button>
           <button
             type="button"
             disabled
-            className="rounded-t-lg px-4 py-2 text-sm font-medium text-slate-500 cursor-not-allowed opacity-60 border-b-2 border-transparent"
+            className="rounded-t-lg px-4 py-2 text-sm font-medium text-stone-400 dark:text-stone-500 cursor-not-allowed opacity-70 border-b-2 border-transparent"
           >
             Roles
-            <span className="ml-2 text-[10px] uppercase tracking-wider text-slate-600">Soon</span>
+            <span className="ml-2 text-[10px] uppercase tracking-wider text-stone-500 dark:text-stone-500">
+              Soon
+            </span>
           </button>
         </div>
 

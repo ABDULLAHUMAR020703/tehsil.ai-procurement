@@ -9,6 +9,7 @@ import { Button } from './ui/Button';
 import { cn } from '@/lib/ui';
 import InteractiveBackground from './InteractiveBackground';
 import { BrandLogo } from './BrandLogo';
+import { ThemeToggle } from './ThemeToggle';
 import { APP_NAME } from '@/lib/appMeta';
 import {
   hasAnyDashboardPermission,
@@ -51,7 +52,13 @@ const navItems: NavItem[] = [
     roles: ['employee', 'admin', 'pm', 'dept_head'],
     permission: 'view_approvals',
   },
-  { href: '/admin/users', label: 'Admin: Users', roles: ['admin'] },
+  { href: '/admin/users', label: 'User Management', roles: ['admin'] },
+  {
+    href: '/reports',
+    label: 'Reports',
+    roles: ['employee', 'admin', 'pm', 'dept_head'],
+    permission: 'view_projects',
+  },
 ];
 
 function navItemAllowed(profile: UserProfile, item: NavItem): boolean {
@@ -75,27 +82,28 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   const linkClass = (href: string, active: boolean) =>
     cn(
-      'block rounded-xl px-4 py-3 text-sm border transition-all font-medium tracking-wide',
+      'block rounded-xl px-4 py-3 text-sm font-medium transition-all border',
       active
-        ? 'bg-purple-600/20 border-purple-500/30 text-white shadow-[0_0_15px_rgba(147,51,234,0.15)]'
-        : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5 hover:border-slate-800/50',
+        ? 'border-orange-200 dark:border-orange-500/40 bg-gradient-to-r from-orange-50 to-rose-50/80 dark:from-orange-950/50 dark:to-rose-950/30 text-stone-900 dark:text-stone-50 shadow-sm'
+        : 'border-transparent text-stone-600 dark:text-stone-400 hover:bg-stone-100/80 dark:hover:bg-stone-800/60 hover:text-stone-900 dark:hover:text-stone-100 hover:border-stone-200 dark:hover:border-stone-600',
     );
 
   return (
-    <div className="min-h-screen flex text-slate-200 font-sans relative overflow-hidden bg-transparent">
+    <div className="min-h-screen flex text-stone-800 dark:text-stone-100 font-sans relative overflow-hidden bg-transparent">
       <InteractiveBackground />
-      <aside className="w-72 border-r border-slate-800/60 bg-[#121124]/80 backdrop-blur-md px-4 py-6 z-10 flex flex-col min-h-screen">
-        <div className="mb-8 px-3 shrink-0">
+      <aside className="w-72 border-r border-stone-200/90 dark:border-stone-700/80 bg-[var(--surface)]/92 dark:bg-stone-900/90 backdrop-blur-md px-4 py-6 z-10 flex flex-col min-h-screen shadow-md shadow-stone-200/30 dark:shadow-stone-950/50">
+        <div className="mb-6 px-3 shrink-0 flex items-start justify-between gap-2">
           <BrandLogo size="md">
             <div>
-              <div className="text-sm font-bold tracking-tight text-white">{APP_NAME}</div>
-              <div className="text-[10px] tracking-wider text-slate-400">Tehsil T Procurement</div>
+              <div className="text-sm font-bold tracking-tight text-stone-900 dark:text-stone-50">{APP_NAME}</div>
+              <div className="text-[10px] tracking-wider text-stone-500 dark:text-stone-400 font-medium">Procurement</div>
             </div>
           </BrandLogo>
+          <ThemeToggle compact className="shrink-0 scale-90 origin-top-right" />
         </div>
 
         <nav className="flex flex-col flex-1 min-h-0">
-          <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1">
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-1.5 pr-1">
             {items.map((i) => (
               <Link key={i.href} href={i.href} className={linkClass(i.href, pathname === i.href)}>
                 {i.label}
@@ -105,22 +113,22 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
           {showSettings ? (
             <>
-              <div className="shrink-0 my-4 border-t border-slate-800/60" aria-hidden />
+              <div className="shrink-0 my-4 border-t border-stone-200 dark:border-stone-700" aria-hidden />
               <Link
                 href="/settings"
                 className={cn(
-                  'group shrink-0 flex items-center gap-3 rounded-xl px-4 py-3 text-sm border transition-all duration-300 font-medium tracking-wide',
+                  'group shrink-0 flex items-center gap-3 rounded-xl px-4 py-3 text-sm border transition-all font-medium',
                   pathname.startsWith('/settings')
-                    ? 'bg-purple-600/20 border-purple-500/30 text-white shadow-[0_0_15px_rgba(147,51,234,0.15)]'
-                    : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5 hover:border-slate-800/50 hover:shadow-[0_0_22px_rgba(147,51,234,0.18)]',
+                    ? 'border-orange-200 dark:border-orange-500/40 bg-orange-50/90 dark:bg-orange-950/40 text-stone-900 dark:text-stone-50 shadow-sm'
+                    : 'border-transparent text-stone-600 dark:text-stone-400 hover:bg-stone-100/80 dark:hover:bg-stone-800/60 hover:text-stone-900 dark:hover:text-stone-100 hover:border-stone-200 dark:hover:border-stone-600',
                 )}
               >
                 <Settings
                   className={cn(
-                    'w-4 h-4 shrink-0 transition-all',
+                    'w-4 h-4 shrink-0 transition-colors',
                     pathname.startsWith('/settings')
-                      ? 'text-purple-300'
-                      : 'text-slate-500 group-hover:text-purple-200 group-hover:drop-shadow-[0_0_8px_rgba(168,85,247,0.45)]',
+                      ? 'text-orange-600 dark:text-orange-400'
+                      : 'text-stone-400 group-hover:text-orange-600 dark:group-hover:text-orange-400',
                   )}
                   aria-hidden
                 />
@@ -130,18 +138,24 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           ) : null}
         </nav>
 
-        <div className="mt-4 shrink-0 text-xs text-slate-400 bg-slate-900/40 rounded-xl p-4 border border-slate-800/50 backdrop-blur-sm">
+        <div className="mt-4 shrink-0 text-xs text-stone-600 dark:text-stone-400 bg-stone-50/90 dark:bg-stone-800/50 rounded-xl p-4 border border-stone-200/90 dark:border-stone-600/70">
           {profile ? (
             <div className="space-y-4">
               <div className="truncate">
-                <div className="font-bold tracking-wider text-slate-200 mb-1">{profile.name ?? profile.email ?? 'User'}</div>
-                <div className="text-[10px] tracking-widest uppercase text-purple-400">{profile.role}</div>
+                <div className="font-semibold text-stone-900 dark:text-stone-50 mb-1">
+                  {profile.name ?? profile.email ?? 'User'}
+                </div>
+                <div className="text-[10px] tracking-widest uppercase text-orange-600 dark:text-orange-400 font-semibold">
+                  {profile.role}
+                </div>
                 {profile.department ? (
-                  <div className="text-[10px] tracking-wider text-slate-500 uppercase mt-0.5">{profile.department}</div>
+                  <div className="text-[10px] tracking-wider text-stone-500 dark:text-stone-500 uppercase mt-0.5">
+                    {profile.department}
+                  </div>
                 ) : null}
               </div>
               <Button
-                className="w-full bg-[#6d28d9]/20 hover:bg-[#6d28d9]/40 border border-purple-500/30 text-purple-200 transition-colors py-2 rounded-lg font-bold tracking-wider text-[10px] uppercase"
+                className="w-full text-xs font-semibold uppercase tracking-wide"
                 variant="secondary"
                 onClick={async () => {
                   await signOut();
@@ -152,13 +166,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               </Button>
             </div>
           ) : (
-            <div>Signing in...</div>
+            <div className="text-stone-500">Signing in...</div>
           )}
         </div>
       </aside>
 
       <main className="flex-1 min-w-0 z-10 relative">
-        <div className="p-8">{children}</div>
+        <div className="p-6 md:p-8">{children}</div>
       </main>
     </div>
   );

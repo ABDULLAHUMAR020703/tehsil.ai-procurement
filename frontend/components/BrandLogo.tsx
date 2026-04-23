@@ -21,15 +21,15 @@ type BrandLogoProps = {
 export function BrandLogo({ size = 'md', padded, className, children }: BrandLogoProps) {
   const { outer, wh } = DIMS[size];
   const ring = padded
-    ? 'w-20 h-20 border-slate-600 bg-[#1f1b3b]'
-    : cn('border-slate-700 bg-slate-900/50', outer);
+    ? 'w-20 h-20 border-slate-200 bg-white shadow-md shadow-slate-200/50'
+    : cn('border-slate-200 bg-white shadow-sm', outer);
   const imgSize = padded ? 56 : wh;
 
   return (
     <div className={cn('flex items-center gap-2', className)}>
       <div
         className={cn(
-          'rounded-full border flex items-center justify-center backdrop-blur-sm overflow-hidden shrink-0',
+          'rounded-full border flex items-center justify-center overflow-hidden shrink-0',
           children ? 'mr-2' : '',
           ring,
         )}

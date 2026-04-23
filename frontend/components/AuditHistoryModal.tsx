@@ -29,9 +29,13 @@ type Props = {
 
 function actionTone(action: string): string {
   const a = action.toLowerCase();
-  if (a.includes('reject')) return 'border-l-rose-500/80 bg-rose-500/5';
-  if (a.includes('approv') || a.includes('budget_deducted')) return 'border-l-emerald-500/80 bg-emerald-500/5';
-  return 'border-l-sky-500/70 bg-sky-500/5';
+  if (a.includes('reject')) {
+    return 'border-l-rose-500 dark:border-l-rose-400 bg-rose-50/80 dark:bg-rose-950/35';
+  }
+  if (a.includes('approv') || a.includes('budget_deducted')) {
+    return 'border-l-orange-500 dark:border-l-orange-400 bg-orange-50/85 dark:bg-orange-950/30';
+  }
+  return 'border-l-orange-500 dark:border-l-orange-400 bg-orange-50/50 dark:bg-orange-950/25';
 }
 
 export function AuditHistoryModal({
@@ -66,7 +70,7 @@ export function AuditHistoryModal({
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/70 p-4 sm:p-6"
+      className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-stone-900/50 dark:bg-black/60 backdrop-blur-[2px] p-4 sm:p-6"
       role="dialog"
       aria-modal="true"
       aria-labelledby="audit-history-title"
@@ -74,12 +78,12 @@ export function AuditHistoryModal({
       onKeyDown={(e) => e.key === 'Escape' && onClose()}
     >
       <div
-        className="w-full max-w-lg max-h-[85vh] overflow-hidden flex flex-col rounded-2xl border border-white/15 bg-card shadow-2xl"
+        className="w-full max-w-lg max-h-[85vh] overflow-hidden flex flex-col rounded-2xl border border-slate-200 bg-card shadow-2xl"
         onClick={(e) => e.stopPropagation()}
         role="document"
       >
-        <div className="flex items-center justify-between gap-2 border-b border-white/10 px-4 py-3">
-          <h2 id="audit-history-title" className="text-base font-medium">
+        <div className="flex items-center justify-between gap-2 border-b border-stone-100 dark:border-stone-700 px-4 py-3">
+          <h2 id="audit-history-title" className="text-base font-semibold text-stone-900 dark:text-stone-50">
             {title}
           </h2>
           <Button type="button" variant="secondary" className="text-xs px-2 py-1" onClick={onClose}>
@@ -90,14 +94,16 @@ export function AuditHistoryModal({
           {isLoading ? (
             <p className="text-sm text-muted-foreground">Loading…</p>
           ) : error ? (
-            <p className="text-sm text-rose-300">{error instanceof Error ? error.message : 'Failed to load history'}</p>
+            <p className="text-sm text-rose-600 dark:text-rose-400">
+              {error instanceof Error ? error.message : 'Failed to load history'}
+            </p>
           ) : logs.length === 0 ? (
             <p className="text-sm text-muted-foreground">No history entries for this record.</p>
           ) : (
             logs.map((log) => (
               <div
                 key={log.id}
-                className={`rounded-lg border border-white/10 border-l-4 pl-3 pr-2 py-2 text-sm ${actionTone(log.action)}`}
+                className={`rounded-lg border border-stone-200 dark:border-stone-600 border-l-4 pl-3 pr-2 py-2 text-sm ${actionTone(log.action)}`}
               >
                 <div className="font-medium text-foreground">{log.action.replace(/_/g, ' ')}</div>
                 <div className="text-xs text-muted-foreground mt-0.5">
@@ -109,7 +115,7 @@ export function AuditHistoryModal({
                   <div className="text-xs text-muted-foreground mt-1 whitespace-pre-wrap break-words">{log.reason}</div>
                 ) : null}
                 {log.changes && Object.keys(log.changes).length > 0 ? (
-                  <pre className="mt-2 max-h-32 overflow-auto rounded bg-black/30 p-2 text-[11px] text-muted-foreground">
+                  <pre className="mt-2 max-h-32 overflow-auto rounded bg-stone-100 dark:bg-stone-900 border border-stone-200 dark:border-stone-600 p-2 text-[11px] text-stone-700 dark:text-stone-300">
                     {JSON.stringify(log.changes, null, 2)}
                   </pre>
                 ) : null}

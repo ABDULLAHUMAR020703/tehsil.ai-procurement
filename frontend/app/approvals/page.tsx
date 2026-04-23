@@ -52,9 +52,12 @@ function duplicateRequestFrameClass(dc: number): string {
 }
 
 function duplicateRequestBannerClass(dc: number): string {
-  if (dc >= 4) return 'border border-red-500/40 bg-red-950/40 text-red-100';
-  if (dc === 3) return 'border border-orange-500/40 bg-orange-950/35 text-orange-100';
-  if (dc === 2) return 'border border-amber-400/40 bg-amber-950/30 text-amber-100';
+  if (dc >= 4)
+    return 'border border-red-500/40 bg-red-50 text-red-900 dark:bg-red-950/40 dark:text-red-100';
+  if (dc === 3)
+    return 'border border-orange-500/40 bg-orange-50 text-orange-900 dark:bg-orange-950/35 dark:text-orange-100';
+  if (dc === 2)
+    return 'border border-amber-400/40 bg-amber-50 text-amber-900 dark:bg-amber-950/30 dark:text-amber-100';
   return '';
 }
 
@@ -163,13 +166,17 @@ export default function ApprovalsPage() {
         <PageHeader title="Approvals" subtitle="Approve or reject workflow items assigned to your role." />
 
         {isFetching && !isLoading ? (
-          <Card className="p-3 text-sm text-purple-200 border-purple-500/30">Fetching latest data...</Card>
+          <Card className="p-3 text-sm text-orange-900 dark:text-orange-200 border-orange-200 dark:border-orange-800/70 bg-orange-50/95 dark:bg-orange-950/40">
+            Fetching latest data...
+          </Card>
         ) : null}
 
         {isLoading ? (
           <Card className="p-4 text-sm text-muted-foreground">Loading...</Card>
         ) : error ? (
-          <Card className="p-4 text-sm text-rose-300">{error instanceof Error ? error.message : 'Failed to load approvals'}</Card>
+          <Card className="p-4 text-sm text-rose-600 border-rose-200 bg-rose-50">
+            {error instanceof Error ? error.message : 'Failed to load approvals'}
+          </Card>
         ) : (
           <div className="space-y-4">
             <Card className="p-0">
@@ -225,8 +232,10 @@ export default function ApprovalsPage() {
                           ) : null}
                         </div>
                       ) : null}
-                      <div className="rounded-lg border border-white/10 overflow-hidden">
-                        <div className="text-xs text-muted-foreground px-3 py-2 bg-[#2a2640]/80">PO line & amounts</div>
+                      <div className="rounded-lg border border-stone-200/90 dark:border-stone-600/70 overflow-hidden">
+                        <div className="text-xs text-muted-foreground px-3 py-2 bg-stone-100/90 dark:bg-stone-800/70">
+                          PO line & amounts
+                        </div>
                         <TableWrapper className="overflow-x-auto">
                           <Table>
                             <THead>
@@ -248,7 +257,7 @@ export default function ApprovalsPage() {
                           </Table>
                         </TableWrapper>
                       </div>
-                      <div className="rounded-lg border border-white/10 bg-[#2a2640]/60 p-3">
+                      <div className="rounded-lg border border-stone-200/90 dark:border-stone-600/70 bg-orange-50/35 dark:bg-stone-800/50 p-3">
                         <div className="text-xs text-muted-foreground mb-2">Required approval chain (Team Lead → PM)</div>
                         <div className="flex flex-wrap items-center gap-2 text-xs">
                           {requiredChain.map((step) => {
@@ -256,18 +265,21 @@ export default function ApprovalsPage() {
                             const indicator = step.status === 'approved' ? '✅' : isCurrent ? '🔵' : '⏳';
                             const overrideNote = step.is_admin_override ? ' · override' : '';
                             return (
-                              <span key={step.id} className="inline-flex items-center gap-1 rounded border border-white/10 px-2 py-1">
+                              <span
+                                key={step.id}
+                                className="inline-flex items-center gap-1 rounded border border-stone-200/90 dark:border-stone-600/70 bg-[var(--surface)]/80 dark:bg-stone-900/50 px-2 py-1"
+                              >
                                 <span>{indicator}</span>
                                 <span title={step.role}>
                                   {approvalStageLabel(step.role)}
-                                  {overrideNote ? <span className="text-amber-200/90">{overrideNote}</span> : null}
+                                  {overrideNote ? <span className="text-amber-800 dark:text-amber-200 font-medium">{overrideNote}</span> : null}
                                 </span>
                               </span>
                             );
                           })}
                         </div>
                         {legacyAdminRows.length > 0 ? (
-                          <div className="mt-2 text-[11px] text-muted-foreground border-t border-white/5 pt-2">
+                          <div className="mt-2 text-[11px] text-muted-foreground border-t border-stone-200/80 dark:border-stone-600/60 pt-2">
                             Legacy admin records (informational, not required):{' '}
                             {legacyAdminRows
                               .map((r) => `${approvalStageLabel('admin', { legacyAdmin: true })}: ${r.status}`)
@@ -275,7 +287,7 @@ export default function ApprovalsPage() {
                           </div>
                         ) : null}
                         {!canDecide && currentStep ? (
-                          <div className="mt-2 text-xs text-amber-200">
+                          <div className="mt-2 text-xs text-amber-800 dark:text-amber-200 font-medium">
                             {approvalPipelineStatus(currentStep.role, currentStep.status)}
                           </div>
                         ) : null}
@@ -286,7 +298,10 @@ export default function ApprovalsPage() {
                           <div className="text-sm text-muted-foreground">
                             Request:{' '}
                             {isAdmin ? (
-                              <Link className="text-purple-300 underline" href={`/purchase-requests/${a.request_id}`}>
+                              <Link
+                              className="text-orange-700 dark:text-orange-400 underline font-medium hover:text-orange-900 dark:hover:text-orange-300"
+                              href={`/purchase-requests/${a.request_id}`}
+                            >
                                 {a.request_id}
                               </Link>
                             ) : (
@@ -296,9 +311,11 @@ export default function ApprovalsPage() {
                           <div className="text-sm text-muted-foreground">Stage: {approvalStageLabel(a.role)}</div>
                           <div className="text-sm text-muted-foreground">Status: {a.status}</div>
                           {a.is_admin_override ? (
-                            <div className="text-xs text-amber-200/90">This row was decided via an administrator action.</div>
+                            <div className="text-xs text-amber-800 dark:text-amber-200">
+                              This row was decided via an administrator action.
+                            </div>
                           ) : null}
-                          <div className="pt-2 border-t border-white/5 mt-2">
+                          <div className="pt-2 border-t border-stone-200/80 dark:border-stone-600/60 mt-2">
                             <LastUpdatedMeta at={a.last_updated_at ?? a.updated_at} user={a.last_updated_by} />
                           </div>
                         </div>
@@ -337,7 +354,7 @@ export default function ApprovalsPage() {
                         <textarea
                           value={comments[a.id] ?? ''}
                           onChange={(e) => setComments((prev) => ({ ...prev, [a.id]: e.target.value }))}
-                          className="w-full rounded-lg border border-white/10 bg-[#2a2640] px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-purple-500/70"
+                          className="w-full rounded-lg border border-stone-200 dark:border-stone-600 bg-[var(--surface)] dark:bg-stone-900 px-3 py-2 text-sm text-stone-900 dark:text-stone-100 outline-none shadow-sm focus:ring-2 focus:ring-orange-500/25 dark:focus:ring-orange-400/25 focus:border-orange-400 dark:focus:border-orange-500"
                           rows={3}
                           placeholder="Add a decision comment"
                         />
@@ -373,8 +390,8 @@ export default function ApprovalsPage() {
           </div>
         )}
         {overrideTarget && isAdmin ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4">
-            <Card className="max-w-md w-full p-6 space-y-4 border border-white/15 shadow-xl">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/45 dark:bg-stone-950/55 backdrop-blur-[2px] p-4">
+            <Card className="max-w-md w-full p-6 space-y-4 border-stone-200/90 dark:border-stone-600/70 shadow-xl">
               <h3 className="text-lg font-medium">Override approval</h3>
               <p className="text-sm text-muted-foreground">
                 Request: {overrideTarget}. A written reason is required for audit.
@@ -403,7 +420,7 @@ export default function ApprovalsPage() {
                 <textarea
                   value={overrideReason}
                   onChange={(e) => setOverrideReason(e.target.value)}
-                  className="w-full rounded-lg border border-white/10 bg-[#2a2640] px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-purple-500/70"
+                  className="w-full rounded-lg border border-stone-200 dark:border-stone-600 bg-[var(--surface)] dark:bg-stone-900 px-3 py-2 text-sm text-stone-900 dark:text-stone-100 outline-none shadow-sm focus:ring-2 focus:ring-orange-500/25 dark:focus:ring-orange-400/25 focus:border-orange-400 dark:focus:border-orange-500"
                   rows={4}
                   placeholder="Document why this override is appropriate"
                 />

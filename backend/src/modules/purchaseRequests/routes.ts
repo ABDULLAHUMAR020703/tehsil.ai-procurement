@@ -5,7 +5,12 @@ import { requireAuth } from '../../middleware/auth';
 import { requireRole } from '../../middleware/rbac';
 import { hasPermission, requirePermission } from '../../middleware/permissions';
 import { z } from 'zod';
-import { countPreviousPrsForSameItem, createPurchaseRequest, normalizeItemCode } from './service';
+import {
+  countPreviousPrsForSameItem,
+  createPurchaseRequest,
+  deletePurchaseRequest,
+  normalizeItemCode,
+} from './service';
 import {
   buildPrPoLineSummary,
   enrichPurchaseRequestsWithPoLine,
@@ -211,6 +216,26 @@ purchaseRequestsRouter.get(
       }
       const previousCount = await countPreviousPrsForSameItem(req.auth!.userId, norm);
       res.json({ previousCount });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+purchaseRequestsRouter.delete(
+  '/:id',
+  requireRole('admin', 'pm', 'dept_head'),
+  async (req, res, next) => {
+    try {
+      const requestId = req.params.id as string;
+      if (!requestId) throw new AppError('Missing purchase request id', 400);
+      await deletePurchaseRequest({
+        requestId,
+        actorUserId: req.auth!.userId,
+        actorRole: req.auth!.role,
+        actorDepartment: req.auth!.department ?? null,
+      });
+      res.status(204).end();
     } catch (err) {
       next(err);
     }

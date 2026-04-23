@@ -140,7 +140,9 @@ export default function PurchaseRequestDetailsPage() {
     return (
       <AppLayout>
         <PageContainer>
-          <Card className="p-6 text-sm text-rose-300">This page is only available to admin users.</Card>
+          <Card className="p-6 text-sm text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-800/60 bg-rose-50 dark:bg-rose-950/40">
+            This page is only available to admin users.
+          </Card>
         </PageContainer>
       </AppLayout>
     );
@@ -164,7 +166,7 @@ export default function PurchaseRequestDetailsPage() {
         {isLoading ? <Card className="p-4 text-sm text-muted-foreground">Loading...</Card> : null}
 
         {error ? (
-          <Card className="p-4 text-sm text-rose-300">
+          <Card className="p-4 text-sm text-rose-600 border-rose-200 bg-rose-50">
             Failed to load purchase request
           </Card>
         ) : !data || !data.purchaseRequest ? (
@@ -239,11 +241,14 @@ export default function PurchaseRequestDetailsPage() {
               ) : (
                 <div className="space-y-2">
                   {data.approvals.map((a) => (
-                    <div key={a.id} className="rounded border border-white/10 px-3 py-2 text-sm">
+                    <div
+                      key={a.id}
+                      className="rounded-lg border border-stone-200/90 dark:border-stone-600/70 bg-orange-50/35 dark:bg-stone-800/50 px-3 py-2 text-sm"
+                    >
                       <div className="font-medium">
                         {approvalStageLabel(a.role, { legacyAdmin: a.role === 'admin' })} — {a.status}
                         {a.is_admin_override ? (
-                          <span className="ml-2 text-xs font-normal text-amber-200/90">(admin override)</span>
+                          <span className="ml-2 text-xs font-normal text-amber-800">(admin override)</span>
                         ) : null}
                       </div>
                       <div className="text-muted-foreground">
@@ -262,7 +267,7 @@ export default function PurchaseRequestDetailsPage() {
             <Card className="p-6 space-y-3">
               <h2 className="text-lg font-medium">Documents</h2>
               {data.purchaseRequest.documentUrl ? (
-                <a className="text-purple-300 underline" href={data.purchaseRequest.documentUrl} target="_blank" rel="noreferrer">
+                <a className="text-orange-700 dark:text-orange-400 underline font-medium hover:text-orange-900 dark:hover:text-orange-300" href={data.purchaseRequest.documentUrl} target="_blank" rel="noreferrer">
                   View / Download document
                 </a>
               ) : (
@@ -277,7 +282,10 @@ export default function PurchaseRequestDetailsPage() {
               ) : (
                 <div className="space-y-2">
                   {data.exceptions.map((ex) => (
-                    <div key={ex.id} className="rounded border border-white/10 px-3 py-2 text-sm">
+                    <div
+                      key={ex.id}
+                      className="rounded-lg border border-stone-200/90 dark:border-stone-600/70 bg-orange-50/35 dark:bg-stone-800/50 px-3 py-2 text-sm"
+                    >
                       <div>Type: {ex.type}</div>
                       <div>Status: {ex.status}</div>
                       <div>Created: {new Date(ex.created_at).toLocaleString()}</div>
@@ -294,7 +302,10 @@ export default function PurchaseRequestDetailsPage() {
               ) : (
                 <div className="space-y-2">
                   {data.auditLogs.map((log) => (
-                    <div key={log.id} className="rounded border border-white/10 px-3 py-2 text-sm">
+                    <div
+                      key={log.id}
+                      className="rounded-lg border border-stone-200/90 dark:border-stone-600/70 bg-orange-50/35 dark:bg-stone-800/50 px-3 py-2 text-sm"
+                    >
                       <div className="font-medium">{log.action}</div>
                       <div className="text-muted-foreground">Time: {new Date(log.timestamp).toLocaleString()}</div>
                       {log.reason ? <div className="text-muted-foreground">Reason: {log.reason}</div> : null}
@@ -309,7 +320,7 @@ export default function PurchaseRequestDetailsPage() {
               )}
             </Card>
 
-            <Card className="p-6 space-y-3 border border-purple-500/30">
+            <Card className="p-6 space-y-3 border border-orange-200/90 dark:border-orange-800/50 bg-orange-50/20 dark:bg-orange-950/15">
               <h2 className="text-lg font-medium">Override approval</h2>
               <p className="text-sm text-muted-foreground">
                 Document a reason for audit. This bypasses the normal Team Lead → PM sequence when policy allows.
@@ -333,7 +344,7 @@ export default function PurchaseRequestDetailsPage() {
               <textarea
                 value={overrideReason}
                 onChange={(e) => setOverrideReason(e.target.value)}
-                className="w-full rounded-lg border border-white/10 bg-[#2a2640] px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-purple-500/70"
+                className="w-full rounded-lg border border-stone-200 dark:border-stone-600 bg-[var(--surface)] dark:bg-stone-900 px-3 py-2 text-sm text-stone-900 dark:text-stone-100 outline-none focus:ring-2 focus:ring-orange-500/25 dark:focus:ring-orange-400/25 focus:border-orange-400 dark:focus:border-orange-500"
                 rows={4}
                 placeholder="Document why this override is appropriate (required)"
               />

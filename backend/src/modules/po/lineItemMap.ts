@@ -15,6 +15,8 @@ export const OPTIONAL_HEADER_TO_COLUMN: Record<string, string> = {
   shipmentnumber: 'shipment_number',
   lineno: 'line_no',
   department: 'department',
+  /** CSV header e.g. "Department name" → normalizeLineHeader → departmentname */
+  departmentname: 'department',
   subdepartment: 'sub_department',
   uom: 'uom',
   poquantity: 'po_quantity',
