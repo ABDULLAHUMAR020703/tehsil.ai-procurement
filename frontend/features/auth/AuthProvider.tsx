@@ -19,6 +19,8 @@ export type UserProfile = {
   name?: string | null;
   email?: string | null;
   companyId?: string | null;
+  /** Effective tenant for API-backed data (matches backend `scopedCompanyId`). */
+  scopedCompanyId?: string | null;
   companyName?: string | null;
   companyLogoUrl?: string | null;
   companyIsActive?: boolean | null;
@@ -88,6 +90,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         name?: string | null;
         email?: string | null;
         companyId?: string | null;
+        scopedCompanyId?: string | null;
         companyName?: string | null;
         companyLogoUrl?: string | null;
         companyIsActive?: boolean | null;
@@ -115,6 +118,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       name: json.user.name ?? null,
       email: json.user.email ?? null,
       companyId: json.user.companyId ?? null,
+      scopedCompanyId: (raw.scopedCompanyId as string | undefined) ?? json.user.companyId ?? null,
       companyName: json.user.companyName ?? null,
       companyLogoUrl: json.user.companyLogoUrl ?? null,
       companyIsActive: json.user.companyIsActive ?? null,

@@ -356,7 +356,9 @@ async function performAdminRejectEntirePr(params: {
       entityId: pr.id,
       changes: { status: { after: 'rejected' }, via: 'admin_reject_entire_pr' },
       departmentScope,
+      companyId,
     },
+    touch: { table: 'purchase_requests', id: pr.id, companyId },
     notify: [
       {
         userId: pr.created_by,
@@ -548,7 +550,9 @@ export async function decideApproval(params: {
         entityId: pr.id as string,
         changes: { status: { after: 'rejected' }, stage: approval.role },
         departmentScope,
+        companyId,
       },
+      touch: { table: 'purchase_requests', id: pr.id as string, companyId },
       notify: [
         {
           userId: pr.created_by as string,
@@ -589,6 +593,7 @@ export async function decideApproval(params: {
         entityId: pr.id as string,
         changes: { stage: approval.role, approvalStatus: { after: 'approved' } },
         departmentScope,
+        companyId,
       },
       touch: { table: 'purchase_requests', id: pr.id as string, companyId },
       notify: [

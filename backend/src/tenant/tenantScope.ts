@@ -36,6 +36,14 @@ export function applyTenantEq<T extends EqBuilder>(qb: T, auth: TenantAuth | und
   return qb.eq(column, cid) as T;
 }
 
+/**
+ * Alias for {@link applyTenantEq}. Applies `.eq('company_id', effectiveTenant)` using
+ * `scopedCompanyId ?? companyId` from auth (never skips for `platform_admin`).
+ */
+export function applyTenantScope<T extends EqBuilder>(qb: T, auth: TenantAuth | undefined, column: string = TENANT_COLUMN): T {
+  return applyTenantEq(qb, auth, column);
+}
+
 /** Assert a single row belongs to the effective tenant (`scopedCompanyId` or `companyId`). */
 export async function assertRowCompany(
   table: string,

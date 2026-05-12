@@ -42,7 +42,7 @@ export default function TenantOverviewPage() {
   return (
     <AppLayout>
       <PageContainer>
-        <PageHeader title="Tenant overview" subtitle="Cross-tenant snapshot (same data as Companies)." />
+        <PageHeader title="Tenant overview" subtitle="Usage for your current tenant only (same source as Companies)." />
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
           <Card className="p-6 overflow-x-auto">
             {isLoading ? <p className="text-sm text-stone-500">Loading…</p> : null}

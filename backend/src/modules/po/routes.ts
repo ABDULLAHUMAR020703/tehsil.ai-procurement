@@ -208,6 +208,7 @@ poRouter.post('/upload', requireRole('admin', 'pm', 'dept_head'), upload.single(
         .from('users')
         .select('name, email')
         .eq('id', actorUserId)
+        .eq('company_id', cid)
         .maybeSingle();
 
       const actorLabel = String(actor?.name ?? actor?.email ?? actorUserId);
@@ -234,7 +235,7 @@ poRouter.post('/upload', requireRole('admin', 'pm', 'dept_head'), upload.single(
             changes: { inserted: result.inserted, updated: result.updated, failed: result.failed },
             departmentScope: deptScope,
           },
-          touch: { table: 'purchase_orders', id: result.firstEntityId },
+          touch: { table: 'purchase_orders', id: result.firstEntityId, companyId: cid },
           notify: notifyEntries,
         });
       }
@@ -356,7 +357,7 @@ poRouter.post('/upload', requireRole('admin', 'pm', 'dept_head'), upload.single(
         changes: { inserted: added, updated, mode: 'legacy_vendor' },
         departmentScope: null,
       },
-      touch: { table: 'purchase_orders', id: touchedIds[0] },
+      touch: { table: 'purchase_orders', id: touchedIds[0], companyId: cid },
       notify: adminIds.map((id) => ({
         userId: id,
         type: 'po_upload_legacy',
@@ -460,7 +461,7 @@ poRouter.get('/', requireRole('admin', 'pm', 'dept_head', 'employee'), async (re
   const { data, error } = await q;
   if (error) throw error;
   const rows = data ?? [];
-  const enrichedRows = await attachLastUpdatedFields('purchase_order', rows);
+  const enrichedRows = await attachLastUpdatedFields('purchase_order', rows, cid);
   const purchaseOrders = groupPurchaseOrdersByPo(enrichedRows as unknown as PurchaseOrderDbRow[]);
   const rowMap = new Map(enrichedRows.map((r) => [r.id, r]));
 

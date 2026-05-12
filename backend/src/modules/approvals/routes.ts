@@ -84,7 +84,7 @@ approvalsRouter.get('/', requirePermission('view_approvals'), requireRole('admin
         });
       }
     }
-    const withAudit = await attachLastUpdatedFields('approval', rows);
+    const withAudit = await attachLastUpdatedFields('approval', rows, cid);
     const enriched = withAudit.map((a) => ({
       ...a,
       purchase_request: prMap.get(a.request_id as string) ?? null,

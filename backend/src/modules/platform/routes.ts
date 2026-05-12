@@ -5,6 +5,7 @@ import { requireAuth } from '../../middleware/auth';
 import { requireRole } from '../../middleware/rbac';
 import { supabaseAdmin } from '../../config/supabase';
 import { AppError } from '../../utils/errors';
+import { companyScopeForRequest } from '../../tenant/requestCompanyId';
 import { onboardNewCompany } from './onboardCompany';
 
 export const platformRouter = Router();
@@ -13,35 +14,39 @@ platformRouter.use(requireRole('platform_admin'));
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
-platformRouter.get('/companies', async (_req, res, next) => {
+platformRouter.get('/companies', async (req, res, next) => {
   try {
-    const { data: companies, error } = await supabaseAdmin
+    const cid = companyScopeForRequest(req);
+    const { data: company, error } = await supabaseAdmin
       .from('companies')
       .select('id, name, logo_url, country, timezone, currency, is_active, created_at')
-      .order('created_at', { ascending: false });
+      .eq('id', cid)
+      .maybeSingle();
     if (error) throw error;
+    if (!company) {
+      res.json({ companies: [] });
+      return;
+    }
 
-    const rows = companies ?? [];
-    const enriched = await Promise.all(
-      rows.map(async (c) => {
-        const id = c.id as string;
-        const [{ count: userCount }, { count: prCount }, { count: projectCount }] = await Promise.all([
-          supabaseAdmin.from('users').select('*', { count: 'exact', head: true }).eq('company_id', id),
-          supabaseAdmin.from('purchase_requests').select('*', { count: 'exact', head: true }).eq('company_id', id),
-          supabaseAdmin.from('projects').select('*', { count: 'exact', head: true }).eq('company_id', id),
-        ]);
-        return {
-          ...c,
+    const id = company.id as string;
+    const [{ count: userCount }, { count: prCount }, { count: projectCount }] = await Promise.all([
+      supabaseAdmin.from('users').select('*', { count: 'exact', head: true }).eq('company_id', id),
+      supabaseAdmin.from('purchase_requests').select('*', { count: 'exact', head: true }).eq('company_id', id),
+      supabaseAdmin.from('projects').select('*', { count: 'exact', head: true }).eq('company_id', id),
+    ]);
+
+    res.json({
+      companies: [
+        {
+          ...company,
           stats: {
             users: userCount ?? 0,
             purchase_requests: prCount ?? 0,
             projects: projectCount ?? 0,
           },
-        };
-      }),
-    );
-
-    res.json({ companies: enriched });
+        },
+      ],
+    });
   } catch (e) {
     next(e);
   }
@@ -50,6 +55,10 @@ platformRouter.get('/companies', async (_req, res, next) => {
 platformRouter.patch('/companies/:id', async (req, res, next) => {
   try {
     const id = z.string().uuid().parse(req.params.id);
+    const scoped = companyScopeForRequest(req);
+    if (id !== scoped) {
+      return next(new AppError('You can only change the company in your current tenant scope', 403));
+    }
     const Body = z.object({ is_active: z.boolean() });
     const { is_active } = Body.parse(req.body ?? {});
     const { data, error } = await supabaseAdmin

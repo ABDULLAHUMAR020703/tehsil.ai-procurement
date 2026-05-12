@@ -174,7 +174,7 @@ projectsRouter.get('/', requireRole('admin', 'pm', 'dept_head', 'employee'), asy
       deptLabelMap = new Map((deptRows ?? []).map((r) => [r.code as string, r.display_name as string]));
     }
 
-    const withAudit = await attachLastUpdatedFields('project', list);
+    const withAudit = await attachLastUpdatedFields('project', list, cid);
     const enriched = withAudit.map((p) => {
       const did = p.department_id as string;
       return {
@@ -274,7 +274,7 @@ projectsRouter.get('/:id', requireRole('admin', 'pm', 'dept_head', 'employee'), 
           .maybeSingle()
       : { data: null };
 
-    const [projectAudit] = await attachLastUpdatedFields('project', [project]);
+    const [projectAudit] = await attachLastUpdatedFields('project', [project], projectAccess.company_id as string);
 
     let purchaseOrder: Record<string, unknown> | null = null;
     if (project.po_id) {
@@ -294,7 +294,7 @@ projectsRouter.get('/:id', requireRole('admin', 'pm', 'dept_head', 'employee'), 
               .eq('id', pob)
               .maybeSingle()
           : { data: null };
-        const [poAudit] = await attachLastUpdatedFields('purchase_order', [po]);
+        const [poAudit] = await attachLastUpdatedFields('purchase_order', [po], projectAccess.company_id as string);
         purchaseOrder = {
           ...po,
           updatedBy: poUpdater ?? null,

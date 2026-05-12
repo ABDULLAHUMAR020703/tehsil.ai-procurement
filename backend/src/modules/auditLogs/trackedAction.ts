@@ -11,16 +11,14 @@ export type TrackedNotifyEntry = {
   emailSubject?: string;
 };
 
-/** Bump row `updated_by` so DB triggers refresh `updated_at`. */
+/** Bump row `updated_by` so DB triggers refresh `updated_at`. Always scoped by tenant. */
 export async function touchEntityRow(
   table: TouchableTable,
   id: string,
   userId: string,
-  companyId?: string,
+  companyId: string,
 ): Promise<void> {
-  let q = supabaseAdmin.from(table).update({ updated_by: userId }).eq('id', id);
-  if (companyId) q = q.eq('company_id', companyId);
-  const { error } = await q;
+  const { error } = await supabaseAdmin.from(table).update({ updated_by: userId }).eq('id', id).eq('company_id', companyId);
   if (error) throw error;
 }
 
@@ -52,7 +50,7 @@ export async function deliverTrackedNotifications(entries: TrackedNotifyEntry[])
  */
 export async function recordTrackedAction(params: {
   audit: AuditLogInsert;
-  touch?: { table: TouchableTable; id: string; companyId?: string };
+  touch?: { table: TouchableTable; id: string; companyId: string };
   notify?: TrackedNotifyEntry[];
 }): Promise<void> {
   await writeAuditLog(params.audit);

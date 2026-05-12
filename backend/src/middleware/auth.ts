@@ -65,7 +65,7 @@ export const requireAuth: RequestHandler = async (req, _res, next) => {
       .from('user_permissions')
       .select('permission')
       .eq('user_id', userId)
-      .eq('company_id', companyId);
+      .eq('company_id', scopedCompanyId);
     if (permErr) return next(new AppError('Failed to load permissions', 500, permErr));
     const fromDb = (permRows ?? [])
       .map((r) => r.permission as string)

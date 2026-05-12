@@ -146,7 +146,7 @@ purchaseRequestsRouter.get(
           .order('created_at', { ascending: false })
           .limit(100);
         if (error) throw error;
-        const withAudit = await attachLastUpdatedFields('purchase_request', data ?? []);
+        const withAudit = await attachLastUpdatedFields('purchase_request', data ?? [], cid);
         const enriched = await withPoLineSummaries(withAudit as Record<string, unknown>[], cid);
         const visible = enriched.map((row) => redactPrListRow(req, row as Record<string, unknown>));
         return res.json({ purchaseRequests: visible });
@@ -199,7 +199,7 @@ purchaseRequestsRouter.get(
       for (const pr of byProject as any[]) map.set(pr.id as string, pr);
 
       const merged = [...map.values()].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 100);
-      const withAudit = await attachLastUpdatedFields('purchase_request', merged);
+      const withAudit = await attachLastUpdatedFields('purchase_request', merged, cid);
       const enriched = await withPoLineSummaries(withAudit as Record<string, unknown>[], cid);
       const visible = enriched.map((row) => redactPrListRow(req, row as Record<string, unknown>));
       res.json({ purchaseRequests: visible });
@@ -358,7 +358,7 @@ purchaseRequestsRouter.get(
 
       let projectPayload: Record<string, unknown> | null = null;
       if (project) {
-        const [projAudit] = await attachLastUpdatedFields('project', [project]);
+        const [projAudit] = await attachLastUpdatedFields('project', [project], cid);
         projectPayload = {
           ...project,
           updatedBy: projUpId ? touchMap.get(projUpId) ?? null : null,
@@ -369,7 +369,7 @@ purchaseRequestsRouter.get(
 
       let poPayload: Record<string, unknown> | null = null;
       if (po) {
-        const [poAudit] = await attachLastUpdatedFields('purchase_order', [po]);
+        const [poAudit] = await attachLastUpdatedFields('purchase_order', [po], cid);
         poPayload = {
           ...po,
           updatedBy: poUpId ? touchMap.get(poUpId) ?? null : null,
@@ -428,7 +428,7 @@ purchaseRequestsRouter.get(
         (a, b) => String(b.timestamp).localeCompare(String(a.timestamp)),
       );
 
-      const approvalsWithAudit = await attachLastUpdatedFields('approval', approvals ?? []);
+      const approvalsWithAudit = await attachLastUpdatedFields('approval', approvals ?? [], cid);
 
       const approverIds = [...new Set((approvalsWithAudit ?? []).map((a) => a.approver_id as string))];
       const { data: approverProfiles, error: approverErr } = approverIds.length
@@ -451,7 +451,7 @@ purchaseRequestsRouter.get(
           (a) => a.status === 'pending' && (a.role === 'team_lead' || a.role === 'pm'),
         )?.role ?? null;
 
-      const [prAudit] = await attachLastUpdatedFields('purchase_request', [pr]);
+      const [prAudit] = await attachLastUpdatedFields('purchase_request', [pr], cid);
 
       const anchors = pr.project_id ? await loadAnchorsForProjectIds([pr.project_id as string], cid) : new Map();
       const anchor = pr.project_id ? anchors.get(pr.project_id as string) ?? null : null;

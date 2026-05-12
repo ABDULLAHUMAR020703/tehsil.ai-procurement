@@ -296,7 +296,7 @@ export async function createPurchaseRequest(params: {
       departmentScope: project.department_id as string,
       companyId: project.company_id as string,
     },
-    touch: { table: 'purchase_requests', id: pr.id as string },
+    touch: { table: 'purchase_requests', id: pr.id as string, companyId: project.company_id as string },
     notify: [
       {
         userId: createdBy,

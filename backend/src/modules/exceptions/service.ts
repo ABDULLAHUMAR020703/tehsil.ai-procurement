@@ -140,7 +140,7 @@ export async function decideException(params: {
           entityId: exception.id as string,
           departmentScope: project.department_id as string,
         },
-        touch: { table: 'projects', id: project.id as string },
+        touch: { table: 'projects', id: project.id as string, companyId: tenantCompanyId },
         notify: [
           {
             userId: project.created_by as string,
@@ -165,7 +165,7 @@ export async function decideException(params: {
           entityId: exception.id as string,
           departmentScope: project.department_id as string,
         },
-        touch: { table: 'projects', id: project.id as string },
+        touch: { table: 'projects', id: project.id as string, companyId: tenantCompanyId },
         notify: [
           {
             userId: project.created_by as string,
@@ -214,7 +214,7 @@ export async function decideException(params: {
           entityId: exception.id as string,
           departmentScope: prDeptScope,
         },
-        touch: { table: 'purchase_requests', id: pr.id as string },
+        touch: { table: 'purchase_requests', id: pr.id as string, companyId: tenantCompanyId },
         notify: [
           {
             userId: pr.created_by as string,
@@ -250,7 +250,7 @@ export async function decideException(params: {
           entityId: exception.id as string,
           departmentScope: prDeptScope,
         },
-        touch: { table: 'purchase_requests', id: pr.id as string },
+        touch: { table: 'purchase_requests', id: pr.id as string, companyId: tenantCompanyId },
         notify: [
           {
             userId: pr.created_by as string,

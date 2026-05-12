@@ -72,7 +72,7 @@ export default function PlatformCompaniesPage() {
   return (
     <AppLayout>
       <PageContainer>
-        <PageHeader title="Companies" subtitle="Activate or suspend tenants and review usage." />
+        <PageHeader title="Companies" subtitle="Tenant-scoped: only your current company (profile or ?companyId=)." />
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}>
           <Card className="p-6">
             {isLoading ? <p className="text-sm text-stone-500">Loading…</p> : null}

@@ -35,6 +35,7 @@ const CHUNK = 200;
 export async function fetchLatestAuditTouchByEntity(
   entityType: AuditEntityType,
   entityIds: string[],
+  companyId: string,
 ): Promise<Map<string, { timestamp: string; user_id: string | null; action: string | null }>> {
   const latest = new Map<string, { timestamp: string; user_id: string | null; action: string | null }>();
   const unique = [...new Set(entityIds)].filter(Boolean);
@@ -46,6 +47,7 @@ export async function fetchLatestAuditTouchByEntity(
       .from('audit_logs')
       .select('entity_id, user_id, timestamp, action')
       .eq('entity_type', entityType)
+      .eq('company_id', companyId)
       .in('entity_id', chunk)
       .order('timestamp', { ascending: false })
       .limit(5000);
@@ -64,13 +66,17 @@ export async function fetchLatestAuditTouchByEntity(
   return latest;
 }
 
-async function loadUsersByIds(ids: string[]): Promise<Map<string, LastUpdatedByUser>> {
+async function loadUsersByIds(ids: string[], companyId: string): Promise<Map<string, LastUpdatedByUser>> {
   const map = new Map<string, LastUpdatedByUser>();
   const unique = [...new Set(ids)].filter(Boolean);
   if (unique.length === 0) return map;
   for (let i = 0; i < unique.length; i += CHUNK) {
     const chunk = unique.slice(i, i + CHUNK);
-    const { data, error } = await supabaseAdmin.from('users').select('id, name, email, role').in('id', chunk);
+    const { data, error } = await supabaseAdmin
+      .from('users')
+      .select('id, name, email, role')
+      .eq('company_id', companyId)
+      .in('id', chunk);
     if (error) throw error;
     for (const u of data ?? []) {
       map.set(u.id as string, {
@@ -86,17 +92,19 @@ async function loadUsersByIds(ids: string[]): Promise<Map<string, LastUpdatedByU
 
 /**
  * Prefer latest audit_logs row; fall back to table `updated_at` / `updated_by`.
+ * Merges latest audit log (and user) with row `updated_*` fallbacks. Preserves all other row fields.
  */
-/** Merges latest audit log (and user) with row `updated_*` fallbacks. Preserves all other row fields. */
 export async function attachLastUpdatedFields<T extends RowWithTouch>(
   entityType: AuditEntityType,
   rows: T[],
+  companyId: string,
 ): Promise<Array<T & LastUpdatedFields>> {
   if (rows.length === 0) return [];
 
   const auditMap = await fetchLatestAuditTouchByEntity(
     entityType,
     rows.map((r) => r.id),
+    companyId,
   );
 
   const userIds = new Set<string>();
@@ -106,7 +114,7 @@ export async function attachLastUpdatedFields<T extends RowWithTouch>(
     const ub = r.updated_by;
     if (ub) userIds.add(ub);
   }
-  const users = await loadUsersByIds([...userIds]);
+  const users = await loadUsersByIds([...userIds], companyId);
 
   return rows.map((r) => {
     const audit = auditMap.get(r.id);
@@ -132,15 +140,16 @@ export async function attachLastUpdatedFields<T extends RowWithTouch>(
 export async function getLastActivity(
   entityType: AuditEntityType,
   entityId: string,
+  companyId: string,
   rowFallback?: RowWithTouch | null,
 ): Promise<LastActivityResult> {
-  const auditMap = await fetchLatestAuditTouchByEntity(entityType, [entityId]);
+  const auditMap = await fetchLatestAuditTouchByEntity(entityType, [entityId], companyId);
   const audit = auditMap.get(entityId);
 
   const userIds = new Set<string>();
   if (audit?.user_id) userIds.add(audit.user_id);
   if (rowFallback?.updated_by) userIds.add(rowFallback.updated_by);
-  const users = await loadUsersByIds([...userIds]);
+  const users = await loadUsersByIds([...userIds], companyId);
 
   let at: string | null = null;
   let uid: string | null = null;

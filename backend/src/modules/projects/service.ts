@@ -90,7 +90,11 @@ async function replaceProjectAssignments(
   teamLeadId: string | null,
   companyId: string,
 ) {
-  const { error: delErr } = await supabaseAdmin.from('project_assignments').delete().eq('project_id', projectId);
+  const { error: delErr } = await supabaseAdmin
+    .from('project_assignments')
+    .delete()
+    .eq('project_id', projectId)
+    .eq('company_id', companyId);
   if (delErr) throw delErr;
   const ids = new Set(employeeIds);
   if (teamLeadId) {
@@ -162,7 +166,7 @@ export async function updateProjectMemberAssignments(params: {
       changes: { assigned_employee_ids: unique },
       departmentScope: project.department_id,
     },
-    touch: { table: 'projects', id: projectId },
+    touch: { table: 'projects', id: projectId, companyId: project.company_id as string },
     notify,
   });
 
@@ -228,7 +232,7 @@ export async function createProjectWithExceptionFlow(input: CreateProjectInput) 
         entityId: project.id as string,
         departmentScope: departmentId,
       },
-      touch: { table: 'projects', id: project.id as string },
+      touch: { table: 'projects', id: project.id as string, companyId },
       notify: [
         {
           userId: pmId,
@@ -290,7 +294,7 @@ export async function createProjectWithExceptionFlow(input: CreateProjectInput) 
       departmentScope: departmentId,
       changes: { project_id: project.id, exception_id: exception.id },
     },
-    touch: { table: 'projects', id: project.id as string },
+    touch: { table: 'projects', id: project.id as string, companyId },
     notify: [
       {
         userId: pmId,
