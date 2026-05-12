@@ -88,6 +88,11 @@ export const requireAuth: RequestHandler = async (req, _res, next) => {
     permissions,
   };
 
+  if (process.env.DEBUG_TENANT === '1') {
+    // eslint-disable-next-line no-console
+    console.log('[DEBUG_TENANT] AUTH USER', req.auth);
+  }
+
   return next();
 };
 

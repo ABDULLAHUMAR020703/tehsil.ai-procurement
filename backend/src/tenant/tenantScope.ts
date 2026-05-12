@@ -1,6 +1,6 @@
 import { supabaseAdmin } from '../config/supabase';
 import { AppError } from '../utils/errors';
-import type { UserRole } from '../modules/auth/types';
+import { isPlatformAdminRole, type UserRole } from '../modules/auth/types';
 
 /** When set, all `.eq('company_id', …)` filters must use this column name (default `company_id`). */
 export const TENANT_COLUMN = 'company_id' as const;
@@ -12,8 +12,6 @@ export type TenantAuth = {
   /** When set (e.g. from HTTP auth), overrides `companyId` for tenant-scoped queries. */
   scopedCompanyId?: string;
 };
-
-type EqBuilder = { eq: (column: string, value: string) => EqBuilder };
 
 /** Company UUID for tenant filters; uses `scopedCompanyId` when present (see `requireAuth`). */
 export function tenantFilterCompanyId(auth: TenantAuth | undefined): string | undefined {
@@ -29,19 +27,37 @@ export function requireTenantCompanyId(auth: TenantAuth | undefined): string {
   return id;
 }
 
-/** Centralized PostgREST tenant filter. Omits the predicate only when `auth` is missing. */
-export function applyTenantEq<T extends EqBuilder>(qb: T, auth: TenantAuth | undefined, column: string = TENANT_COLUMN): T {
+/**
+ * Centralized PostgREST tenant filter. Omits the predicate only when `auth` is missing.
+ * Parameters/return are intentionally loose so chaining does not hit TS2589 (Supabase generics).
+ */
+export function applyTenantEq(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  qb: any,
+  auth: TenantAuth | undefined,
+  column: string = TENANT_COLUMN,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): any {
   const cid = tenantFilterCompanyId(auth);
   if (cid === undefined) return qb;
-  return qb.eq(column, cid) as T;
+  return qb.eq(column, cid);
 }
 
 /**
- * Alias for {@link applyTenantEq}. Applies `.eq('company_id', effectiveTenant)` using
- * `scopedCompanyId ?? companyId` from auth (never skips for `platform_admin`).
+ * Tenant filter for generic queries: **skips** `company_id` for `platform_admin` (global operator).
+ * For user/employee listings and most APIs, use {@link applyTenantEq} instead so `scopedCompanyId`
+ * and `?companyId=` still isolate tenants.
  */
-export function applyTenantScope<T extends EqBuilder>(qb: T, auth: TenantAuth | undefined, column: string = TENANT_COLUMN): T {
-  return applyTenantEq(qb, auth, column);
+export function applyTenantScope(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  qb: any,
+  auth: TenantAuth | undefined,
+  column: string = TENANT_COLUMN,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): any {
+  if (!auth) return qb;
+  if (isPlatformAdminRole(auth.role)) return qb;
+  return qb.eq(column, auth.companyId);
 }
 
 /** Assert a single row belongs to the effective tenant (`scopedCompanyId` or `companyId`). */

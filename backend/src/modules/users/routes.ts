@@ -7,6 +7,7 @@ import { AppError } from '../../utils/errors';
 import { bypassesDepartmentScope } from '../auth/types';
 import { assertDepartmentExists } from '../departments/service';
 import { companyScopeForRequest } from '../../tenant/requestCompanyId';
+import { applyTenantEq, type TenantAuth } from '../../tenant/tenantScope';
 
 export const usersRouter = Router();
 
@@ -19,18 +20,19 @@ usersRouter.get('/', requireRole('admin', 'pm', 'dept_head', 'platform_admin'), 
   try {
     const role = req.auth!.role;
     const companyId = companyScopeForRequest(req);
+    const tenantAuth = req.auth as TenantAuth;
+
+    let q = applyTenantEq(
+      supabaseAdmin.from('users').select('id,name,email,role,department,job_title,created_at'),
+      tenantAuth,
+    ).order('created_at', {
+      ascending: false,
+    });
+
     const deptFilter =
       typeof req.query.department === 'string' && req.query.department
         ? req.query.department
         : null;
-
-    let q = supabaseAdmin
-      .from('users')
-      .select('id,name,email,role,department,job_title,created_at')
-      .eq('company_id', companyId)
-      .order('created_at', {
-        ascending: false,
-      });
 
     const roleFilterRaw = typeof req.query.role === 'string' ? req.query.role.trim() : '';
     if (roleFilterRaw) {
@@ -50,6 +52,15 @@ usersRouter.get('/', requireRole('admin', 'pm', 'dept_head', 'platform_admin'), 
 
     const { data, error } = await q;
     if (error) throw error;
+    if (process.env.DEBUG_TENANT === '1') {
+      // eslint-disable-next-line no-console
+      console.log('[DEBUG_TENANT] /api/users GET', {
+        authUserId: req.auth!.userId,
+        authRole: req.auth!.role,
+        companyId,
+        rowCount: (data ?? []).length,
+      });
+    }
     res.json({ users: data ?? [] });
   } catch (err) {
     next(err);
@@ -71,12 +82,11 @@ usersRouter.patch('/:id', requireRole('admin', 'platform_admin'), async (req, re
       throw new AppError('No updates provided', 400);
     }
 
-    const companyScope = companyScopeForRequest(req);
-    const loadQ = supabaseAdmin
-      .from('users')
-      .select('id, name, email, role, department, company_id')
-      .eq('id', userId)
-      .eq('company_id', companyScope);
+    const tenantAuth = req.auth as TenantAuth;
+    const loadQ = applyTenantEq(
+      supabaseAdmin.from('users').select('id, name, email, role, department, company_id').eq('id', userId),
+      tenantAuth,
+    );
     const { data: row, error: loadErr } = await loadQ.single();
     if (loadErr || !row) throw loadErr ?? new AppError('User not found', 404);
 
@@ -103,15 +113,17 @@ usersRouter.patch('/:id', requireRole('admin', 'platform_admin'), async (req, re
       throw new AppError('Only admin users may belong to the management department', 400);
     }
 
-    const updQ = supabaseAdmin
-      .from('users')
-      .update({
-        name: merged.name,
-        role: merged.role,
-        department: merged.department,
-      })
-      .eq('id', userId)
-      .eq('company_id', companyScope);
+    const updQ = applyTenantEq(
+      supabaseAdmin
+        .from('users')
+        .update({
+          name: merged.name,
+          role: merged.role,
+          department: merged.department,
+        })
+        .eq('id', userId),
+      tenantAuth,
+    );
 
     const { data, error } = await updQ.select('id,name,email,role,department,job_title,created_at').single();
     if (error) throw error;

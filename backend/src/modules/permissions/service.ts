@@ -88,6 +88,7 @@ export async function replaceUserPermissions(params: {
     .from('users')
     .select('id, role, company_id')
     .eq('id', targetUserId)
+    .eq('company_id', companyId)
     .maybeSingle();
   if (tErr) throw tErr;
   if (!target) throw new AppError('User not found', 404);
