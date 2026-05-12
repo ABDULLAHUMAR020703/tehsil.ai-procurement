@@ -1,9 +1,11 @@
 import { supabaseAdmin } from '../../config/supabase';
 import { AppError } from '../../utils/errors';
-import { bypassesDepartmentScope, isDeptManagerRole, type UserRole } from '../auth/types';
+import type { TenantAuth } from '../../tenant/tenantScope';
+import { isPlatformAdminRole, bypassesDepartmentScope, isDeptManagerRole, type UserRole } from '../auth/types';
 
 export type ProjectRow = {
   id: string;
+  company_id: string;
   department_id: string;
   team_lead_id: string | null;
   /** Responsible PM for approval chain; may be null before DB migration backfill. */
@@ -16,12 +18,15 @@ export function isTeamLeadOnProject(params: { projectTeamLeadId: string | null; 
   return params.projectTeamLeadId != null && params.projectTeamLeadId === params.userId;
 }
 
-export async function fetchProjectOrThrow(projectId: string): Promise<ProjectRow> {
-  const { data: project, error } = await supabaseAdmin
+export async function fetchProjectOrThrow(projectId: string, auth?: TenantAuth): Promise<ProjectRow> {
+  let q = supabaseAdmin
     .from('projects')
-    .select('id, department_id, team_lead_id, pm_id, created_by, status')
-    .eq('id', projectId)
-    .single();
+    .select('id, company_id, department_id, team_lead_id, pm_id, created_by, status')
+    .eq('id', projectId);
+  if (auth && !isPlatformAdminRole(auth.role)) {
+    q = q.eq('company_id', auth.companyId);
+  }
+  const { data: project, error } = await q.single();
   if (error || !project) throw error ?? new AppError('Project not found', 404);
   return project as ProjectRow;
 }
@@ -46,12 +51,14 @@ export async function assertActorMayManageProject(params: {
 export async function assertUserEligibleTeamLead(params: {
   teamLeadUserId: string;
   projectDepartment: string;
+  companyId: string;
 }) {
-  const { teamLeadUserId, projectDepartment } = params;
+  const { teamLeadUserId, projectDepartment, companyId } = params;
   const { data: user, error } = await supabaseAdmin
     .from('users')
-    .select('id, department, role')
+    .select('id, department, role, company_id')
     .eq('id', teamLeadUserId)
+    .eq('company_id', companyId)
     .single();
   if (error || !user) throw error ?? new AppError('Team lead user not found', 404);
   if (user.department !== projectDepartment) {

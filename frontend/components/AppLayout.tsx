@@ -21,7 +21,7 @@ import type { UserProfile } from '../features/auth/AuthProvider';
 type NavItem = {
   href: string;
   label: string;
-  roles: Array<'employee' | 'admin' | 'pm' | 'dept_head'>;
+  roles: Array<'employee' | 'admin' | 'platform_admin' | 'pm' | 'dept_head'>;
   /** Admins always pass. */
   permission?: AppPermissionId | 'dashboard_any';
 };
@@ -30,40 +30,50 @@ const navItems: NavItem[] = [
   {
     href: '/dashboard',
     label: 'Dashboard',
-    roles: ['employee', 'admin', 'pm', 'dept_head'],
+    roles: ['employee', 'admin', 'platform_admin', 'pm', 'dept_head'],
     permission: 'dashboard_any',
   },
-  { href: '/po/upload', label: 'PO Upload', roles: ['admin', 'pm', 'dept_head'], permission: 'view_pos' },
+  { href: '/po/upload', label: 'PO Upload', roles: ['admin', 'platform_admin', 'pm', 'dept_head'], permission: 'view_pos' },
   {
     href: '/projects',
     label: 'Projects',
-    roles: ['employee', 'admin', 'pm', 'dept_head'],
+    roles: ['employee', 'admin', 'platform_admin', 'pm', 'dept_head'],
     permission: 'view_projects',
   },
   {
     href: '/purchase-requests',
     label: 'Purchase Requests',
-    roles: ['employee', 'admin', 'pm', 'dept_head'],
+    roles: ['employee', 'admin', 'platform_admin', 'pm', 'dept_head'],
     permission: 'view_projects',
   },
   {
     href: '/approvals',
     label: 'Approvals',
-    roles: ['employee', 'admin', 'pm', 'dept_head'],
+    roles: ['employee', 'admin', 'platform_admin', 'pm', 'dept_head'],
     permission: 'view_approvals',
   },
-  { href: '/admin/users', label: 'User Management', roles: ['admin'] },
+  { href: '/admin/users', label: 'User Management', roles: ['admin', 'platform_admin'] },
   {
     href: '/reports',
     label: 'Reports',
-    roles: ['employee', 'admin', 'pm', 'dept_head'],
+    roles: ['employee', 'admin', 'platform_admin', 'pm', 'dept_head'],
     permission: 'view_projects',
   },
 ];
 
+const platformNavItems: NavItem[] = [
+  { href: '/platform/companies', label: 'Companies', roles: ['platform_admin'] },
+  { href: '/platform/tenant-overview', label: 'Tenant overview', roles: ['platform_admin'] },
+  { href: '/platform/onboard-company', label: 'Onboard company', roles: ['platform_admin'] },
+];
+
 function navItemAllowed(profile: UserProfile, item: NavItem): boolean {
   if (!item.roles.includes(profile.role)) return false;
-  if (profile.role === 'admin') return true;
+  if (profile.role === 'admin' || profile.role === 'platform_admin') {
+    if (!item.permission) return true;
+    if (item.permission === 'dashboard_any') return hasAnyDashboardPermission(profile);
+    return hasAppPermission(profile, item.permission);
+  }
   if (!item.permission) return true;
   if (item.permission === 'dashboard_any') return hasAnyDashboardPermission(profile);
   return hasAppPermission(profile, item.permission);
@@ -74,11 +84,14 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
 
-  const items = useMemo(() => {
-    if (!profile) return [];
-    return navItems.filter((n) => navItemAllowed(profile, n));
+  const { mainNav, platformNav } = useMemo(() => {
+    if (!profile) return { mainNav: [] as NavItem[], platformNav: [] as NavItem[] };
+    const main = navItems.filter((n) => navItemAllowed(profile, n));
+    const plat =
+      profile.role === 'platform_admin' ? platformNavItems.filter((n) => navItemAllowed(profile, n)) : [];
+    return { mainNav: main, platformNav: plat };
   }, [profile]);
-  const showSettings = profile?.role === 'admin';
+  const showSettings = profile?.role === 'admin' || profile?.role === 'platform_admin';
 
   const linkClass = (href: string, active: boolean) =>
     cn(
@@ -97,6 +110,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             <div>
               <div className="text-sm font-bold tracking-tight text-stone-900 dark:text-stone-50">{APP_NAME}</div>
               <div className="text-[10px] tracking-wider text-stone-500 dark:text-stone-400 font-medium">Procurement</div>
+              {profile?.companyName ? (
+                <div className="text-[10px] font-semibold text-orange-700 dark:text-orange-300/90 mt-0.5 truncate max-w-[10rem]">
+                  {profile.companyName}
+                </div>
+              ) : null}
             </div>
           </BrandLogo>
           <ThemeToggle compact className="shrink-0 scale-90 origin-top-right" />
@@ -104,11 +122,22 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
         <nav className="flex flex-col flex-1 min-h-0">
           <div className="flex-1 min-h-0 overflow-y-auto space-y-1.5 pr-1">
-            {items.map((i) => (
+            {mainNav.map((i) => (
               <Link key={i.href} href={i.href} className={linkClass(i.href, pathname === i.href)}>
                 {i.label}
               </Link>
             ))}
+            {platformNav.length > 0 ? (
+              <>
+                <div className="my-3 border-t border-stone-200 dark:border-stone-700" aria-hidden />
+                <div className="px-1 text-[10px] font-bold tracking-widest text-stone-400 uppercase mb-1">Platform</div>
+                {platformNav.map((i) => (
+                  <Link key={i.href} href={i.href} className={linkClass(i.href, pathname === i.href)}>
+                    {i.label}
+                  </Link>
+                ))}
+              </>
+            ) : null}
           </div>
 
           {showSettings ? (
@@ -148,6 +177,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 <div className="text-[10px] tracking-widest uppercase text-orange-600 dark:text-orange-400 font-semibold">
                   {profile.role}
                 </div>
+                {profile.companyName ? (
+                  <div className="text-[10px] tracking-wider text-stone-600 dark:text-stone-400 mt-0.5 truncate">
+                    {profile.companyName}
+                  </div>
+                ) : null}
                 {profile.department ? (
                   <div className="text-[10px] tracking-wider text-stone-500 dark:text-stone-500 uppercase mt-0.5">
                     {profile.department}

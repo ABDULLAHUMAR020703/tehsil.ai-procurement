@@ -1,6 +1,7 @@
 import { appEmailSubject } from '../../config/appMeta';
 import { supabaseAdmin } from '../../config/supabase';
 import { AppError } from '../../utils/errors';
+import type { TenantAuth } from '../../tenant/tenantScope';
 import { recordTrackedAction } from '../auditLogs/trackedAction';
 import type { UserRole } from '../auth/types';
 import { bypassesDepartmentScope, isDeptManagerRole } from '../auth/types';
@@ -18,6 +19,8 @@ type CreateProjectInput = {
   createdBy: string;
   actorRole: UserRole;
   actorDepartment: string | null;
+  /** Tenant scope for all FK lookups and inserts. */
+  companyId: string;
   /** FK to departments.code; admin picks freely; PM/dept_head must match profile. */
   departmentId: string;
   /** Department PM responsible for this project (approval workflow). */
@@ -27,7 +30,7 @@ type CreateProjectInput = {
 };
 
 async function resolveProjectDepartmentForCreate(input: CreateProjectInput): Promise<string> {
-  const fromBody = await resolveDepartmentCode(input.departmentId);
+  const fromBody = await resolveDepartmentCode(input.departmentId, input.companyId);
   if (!fromBody) throw new AppError('department_id is required', 400);
   if (fromBody === 'management') {
     throw new AppError('Projects cannot be assigned to the management department', 400);
@@ -38,7 +41,7 @@ async function resolveProjectDepartmentForCreate(input: CreateProjectInput): Pro
   }
 
   if (isDeptManagerRole(input.actorRole)) {
-    const actorDept = await resolveDepartmentCode(input.actorDepartment ?? undefined);
+    const actorDept = await resolveDepartmentCode(input.actorDepartment ?? undefined, input.companyId);
     if (!actorDept) throw new AppError('Your profile must have a department to create projects', 400);
     if (actorDept === 'management') {
       throw new AppError('Use an operational department account to create projects', 403);
@@ -52,16 +55,25 @@ async function resolveProjectDepartmentForCreate(input: CreateProjectInput): Pro
   throw new AppError('Forbidden', 403);
 }
 
-async function validatePmForDepartment(pmId: string, department: string) {
-  const { data: u, error } = await supabaseAdmin.from('users').select('id, role, department').eq('id', pmId).single();
+async function validatePmForDepartment(pmId: string, department: string, companyId: string) {
+  const { data: u, error } = await supabaseAdmin
+    .from('users')
+    .select('id, role, department')
+    .eq('id', pmId)
+    .eq('company_id', companyId)
+    .single();
   if (error || !u) throw error ?? new AppError('Project manager user not found', 404);
   if (u.role !== 'pm') throw new AppError('Project manager must be a user with PM role', 400);
   if (u.department !== department) throw new AppError('PM must belong to the project department', 400);
 }
 
-async function validateAssignedEmployees(employeeIds: string[], department: string) {
+async function validateAssignedEmployees(employeeIds: string[], department: string, companyId: string) {
   if (employeeIds.length === 0) return;
-  const { data: rows, error } = await supabaseAdmin.from('users').select('id, role, department').in('id', employeeIds);
+  const { data: rows, error } = await supabaseAdmin
+    .from('users')
+    .select('id, role, department')
+    .eq('company_id', companyId)
+    .in('id', employeeIds);
   if (error) throw error;
   const byId = new Map((rows ?? []).map((u) => [u.id as string, u]));
   for (const id of employeeIds) {
@@ -72,16 +84,26 @@ async function validateAssignedEmployees(employeeIds: string[], department: stri
   }
 }
 
-async function replaceProjectAssignments(projectId: string, employeeIds: string[], teamLeadId: string | null) {
+async function replaceProjectAssignments(
+  projectId: string,
+  employeeIds: string[],
+  teamLeadId: string | null,
+  companyId: string,
+) {
   const { error: delErr } = await supabaseAdmin.from('project_assignments').delete().eq('project_id', projectId);
   if (delErr) throw delErr;
   const ids = new Set(employeeIds);
   if (teamLeadId) {
-    const { data: tl } = await supabaseAdmin.from('users').select('role').eq('id', teamLeadId).maybeSingle();
+    const { data: tl } = await supabaseAdmin
+      .from('users')
+      .select('role')
+      .eq('id', teamLeadId)
+      .eq('company_id', companyId)
+      .maybeSingle();
     if (tl?.role === 'employee') ids.add(teamLeadId);
   }
   if (ids.size === 0) return;
-  const rows = [...ids].map((employee_id) => ({ project_id: projectId, employee_id }));
+  const rows = [...ids].map((employee_id) => ({ project_id: projectId, employee_id, company_id: companyId }));
   const { error: insErr } = await supabaseAdmin.from('project_assignments').insert(rows);
   if (insErr) throw insErr;
 }
@@ -92,9 +114,10 @@ export async function updateProjectMemberAssignments(params: {
   actorUserId: string;
   actorRole: UserRole;
   actorDepartment: string | null;
+  tenantAuth: TenantAuth;
 }) {
-  const { projectId, assignedEmployeeIds, actorUserId, actorRole, actorDepartment } = params;
-  const project = await fetchProjectOrThrow(projectId);
+  const { projectId, assignedEmployeeIds, actorUserId, actorRole, actorDepartment, tenantAuth } = params;
+  const project = await fetchProjectOrThrow(projectId, tenantAuth);
 
   await assertActorMayManageProject({
     actorUserId,
@@ -108,8 +131,8 @@ export async function updateProjectMemberAssignments(params: {
     throw new AppError('Cannot assign the project PM as a member row; PM is already on the project', 400);
   }
 
-  await validateAssignedEmployees(unique, project.department_id);
-  await replaceProjectAssignments(projectId, unique, project.team_lead_id);
+  await validateAssignedEmployees(unique, project.department_id, project.company_id as string);
+  await replaceProjectAssignments(projectId, unique, project.team_lead_id, project.company_id as string);
 
   const notify: import('../auditLogs/trackedAction').TrackedNotifyEntry[] = [];
   if (project.pm_id) {
@@ -147,7 +170,7 @@ export async function updateProjectMemberAssignments(params: {
 }
 
 export async function createProjectWithExceptionFlow(input: CreateProjectInput) {
-  const { name, poId, budget, createdBy, actorRole, pmId, teamLeadId, assignedEmployeeIds } = input;
+  const { name, poId, budget, createdBy, actorRole, pmId, teamLeadId, assignedEmployeeIds, companyId } = input;
   const departmentId = await resolveProjectDepartmentForCreate(input);
 
   if (!name.trim()) throw new AppError('Project name is required', 400);
@@ -157,14 +180,15 @@ export async function createProjectWithExceptionFlow(input: CreateProjectInput) 
     throw new AppError('Project manager cannot be listed as an assigned employee', 400);
   }
 
-  await validatePmForDepartment(pmId, departmentId);
-  await assertUserEligibleTeamLead({ teamLeadUserId: teamLeadId, projectDepartment: departmentId });
-  await validateAssignedEmployees(memberIds, departmentId);
+  await validatePmForDepartment(pmId, departmentId, companyId);
+  await assertUserEligibleTeamLead({ teamLeadUserId: teamLeadId, projectDepartment: departmentId, companyId });
+  await validateAssignedEmployees(memberIds, departmentId, companyId);
 
   if (poId) {
     const { data: po, error: poErr } = await supabaseAdmin
       .from('purchase_orders')
       .select('id, remaining_value')
+      .eq('company_id', companyId)
       .eq('id', poId)
       .single();
     if (poErr || !po) throw poErr ?? new AppError('PO not found', 404);
@@ -187,12 +211,13 @@ export async function createProjectWithExceptionFlow(input: CreateProjectInput) 
         updated_by: createdBy,
         status: 'active',
         is_exception: false,
+        company_id: companyId,
       })
       .select('id, name, po_id, budget, status, is_exception, department_id, team_lead_id, pm_id')
       .single();
     if (prErr) throw prErr;
 
-    await replaceProjectAssignments(project.id as string, memberIds, teamLeadId);
+    await replaceProjectAssignments(project.id as string, memberIds, teamLeadId, companyId);
 
     await recordTrackedAction({
       audit: {
@@ -231,12 +256,13 @@ export async function createProjectWithExceptionFlow(input: CreateProjectInput) 
       updated_by: createdBy,
       status: 'exception_pending',
       is_exception: true,
+      company_id: companyId,
     })
     .select('id, name, po_id, budget, status, is_exception, department_id, team_lead_id, pm_id')
     .single();
   if (prjErr || !project) throw prjErr ?? new AppError('Failed to create project', 500);
 
-  await replaceProjectAssignments(project.id as string, memberIds, teamLeadId);
+  await replaceProjectAssignments(project.id as string, memberIds, teamLeadId, companyId);
 
   const { data: exception, error: exErr } = await supabaseAdmin
     .from('exceptions')
@@ -245,6 +271,7 @@ export async function createProjectWithExceptionFlow(input: CreateProjectInput) 
       reference_id: project.id,
       status: 'pending',
       approved_by: null,
+      company_id: companyId,
     })
     .select('id, type, reference_id, status')
     .single();
@@ -285,17 +312,22 @@ export async function createProjectWithExceptionFlow(input: CreateProjectInput) 
 
 const ARCHIVE_BLOCKED_MESSAGE = 'Project cannot be deleted as it has approved transactions';
 
-async function hasCommittedFinancialActivity(projectId: string): Promise<boolean> {
+async function hasCommittedFinancialActivity(projectId: string, companyId: string): Promise<boolean> {
   const { data: approvedPr, error: apErr } = await supabaseAdmin
     .from('purchase_requests')
     .select('id')
+    .eq('company_id', companyId)
     .eq('project_id', projectId)
     .eq('status', 'approved')
     .limit(1);
   if (apErr) throw apErr;
   if (approvedPr && approvedPr.length > 0) return true;
 
-  const { data: prs, error: prErr } = await supabaseAdmin.from('purchase_requests').select('id').eq('project_id', projectId);
+  const { data: prs, error: prErr } = await supabaseAdmin
+    .from('purchase_requests')
+    .select('id')
+    .eq('company_id', companyId)
+    .eq('project_id', projectId);
   if (prErr) throw prErr;
   const prIds = (prs ?? []).map((r) => r.id as string);
   if (prIds.length === 0) return false;
@@ -303,6 +335,7 @@ async function hasCommittedFinancialActivity(projectId: string): Promise<boolean
   const { data: auditHit, error: auErr } = await supabaseAdmin
     .from('audit_logs')
     .select('id')
+    .eq('company_id', companyId)
     .eq('action', 'pr_approved')
     .eq('entity', 'purchase_request')
     .in('entity_id', prIds)
@@ -311,14 +344,20 @@ async function hasCommittedFinancialActivity(projectId: string): Promise<boolean
   return (auditHit?.length ?? 0) > 0;
 }
 
-export async function archiveProject(params: { projectId: string; actorUserId: string; actorRole: UserRole; actorDepartment?: string | null }) {
-  const { projectId, actorUserId, actorRole, actorDepartment } = params;
+export async function archiveProject(params: {
+  projectId: string;
+  actorUserId: string;
+  actorRole: UserRole;
+  actorDepartment?: string | null;
+  tenantAuth: TenantAuth;
+}) {
+  const { projectId, actorUserId, actorRole, actorDepartment, tenantAuth } = params;
 
   if (!bypassesDepartmentScope(actorRole) && !isDeptManagerRole(actorRole)) {
     throw new AppError('Forbidden', 403);
   }
 
-  const project = await fetchProjectOrThrow(projectId);
+  const project = await fetchProjectOrThrow(projectId, tenantAuth);
 
   if (project.status === 'archived') {
     throw new AppError('Project is already archived', 409);
@@ -330,14 +369,15 @@ export async function archiveProject(params: { projectId: string; actorUserId: s
     }
   }
 
-  if (await hasCommittedFinancialActivity(projectId)) {
+  if (await hasCommittedFinancialActivity(projectId, project.company_id as string)) {
     throw new AppError(ARCHIVE_BLOCKED_MESSAGE, 409);
   }
 
   const { error: upErr } = await supabaseAdmin
     .from('projects')
     .update({ status: 'archived', updated_by: actorUserId })
-    .eq('id', projectId);
+    .eq('id', projectId)
+    .eq('company_id', project.company_id as string);
   if (upErr) throw upErr;
 
   const notify: import('../auditLogs/trackedAction').TrackedNotifyEntry[] = [];
@@ -372,9 +412,10 @@ export async function updateProjectTeamLead(params: {
   actorUserId: string;
   actorRole: UserRole;
   actorDepartment: string | null;
+  tenantAuth: TenantAuth;
 }) {
-  const { projectId, teamLeadId, actorUserId, actorRole, actorDepartment } = params;
-  const project = await fetchProjectOrThrow(projectId);
+  const { projectId, teamLeadId, actorUserId, actorRole, actorDepartment, tenantAuth } = params;
+  const project = await fetchProjectOrThrow(projectId, tenantAuth);
 
   await assertActorMayManageProject({
     actorUserId,
@@ -384,22 +425,32 @@ export async function updateProjectTeamLead(params: {
   });
 
   if (teamLeadId) {
-    await assertUserEligibleTeamLead({ teamLeadUserId: teamLeadId, projectDepartment: project.department_id });
+    await assertUserEligibleTeamLead({
+      teamLeadUserId: teamLeadId,
+      projectDepartment: project.department_id,
+      companyId: project.company_id as string,
+    });
   }
 
   const { error } = await supabaseAdmin
     .from('projects')
     .update({ team_lead_id: teamLeadId, updated_by: actorUserId })
-    .eq('id', projectId);
+    .eq('id', projectId)
+    .eq('company_id', project.company_id as string);
   if (error) throw error;
 
   if (teamLeadId) {
-    const { data: tl } = await supabaseAdmin.from('users').select('role').eq('id', teamLeadId).maybeSingle();
+    const { data: tl } = await supabaseAdmin
+      .from('users')
+      .select('role')
+      .eq('id', teamLeadId)
+      .eq('company_id', project.company_id as string)
+      .maybeSingle();
     if (tl?.role === 'employee') {
       await supabaseAdmin
         .from('project_assignments')
         .upsert(
-          { project_id: projectId, employee_id: teamLeadId },
+          { project_id: projectId, employee_id: teamLeadId, company_id: project.company_id as string },
           { onConflict: 'project_id,employee_id' },
         );
     }
@@ -440,6 +491,7 @@ export async function updateProjectTeamLead(params: {
     .from('projects')
     .select('id, name, department_id, team_lead_id, pm_id, status, po_id, budget, is_exception')
     .eq('id', projectId)
+    .eq('company_id', project.company_id as string)
     .single();
   if (selErr) throw selErr;
 

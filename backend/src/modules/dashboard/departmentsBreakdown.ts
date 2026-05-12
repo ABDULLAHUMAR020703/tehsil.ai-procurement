@@ -45,12 +45,14 @@ export async function fetchDashboardDepartmentsBreakdown(params: {
   section: DashboardDrillSection;
   actorRole: UserRole;
   actorDepartment: string | null;
+  companyId: string;
 }): Promise<{ section: DashboardDrillSection; departments: DashboardDepartmentBucket[] }> {
-  const { section, actorRole, actorDepartment } = params;
+  const { section, actorRole, actorDepartment, companyId } = params;
 
   const { data: deptRows, error: deptErr } = await supabaseAdmin
     .from('departments')
     .select('code, display_name')
+    .eq('company_id', companyId)
     .order('display_name');
   if (deptErr) throw deptErr;
 
@@ -85,6 +87,7 @@ export async function fetchDashboardDepartmentsBreakdown(params: {
     const { data: projects, error } = await supabaseAdmin
       .from('projects')
       .select('id, name, status, department_id')
+      .eq('company_id', companyId)
       .in('department_id', allowedCodes);
     if (error) throw error;
     for (const p of projects ?? []) {
@@ -105,6 +108,7 @@ export async function fetchDashboardDepartmentsBreakdown(params: {
       .select(
         'id, request_id, role, status, purchase_requests ( description, projects ( department_id ) )',
       )
+      .eq('company_id', companyId)
       .eq('status', 'pending');
     if (error) throw error;
     for (const r of rows ?? []) {
@@ -128,6 +132,7 @@ export async function fetchDashboardDepartmentsBreakdown(params: {
     const { data: exRows, error: exErr } = await supabaseAdmin
       .from('exceptions')
       .select('id, type, status, reference_id')
+      .eq('company_id', companyId)
       .eq('status', 'pending');
     if (exErr) throw exErr;
     const list = exRows ?? [];
@@ -139,6 +144,7 @@ export async function fetchDashboardDepartmentsBreakdown(params: {
       const { data: projs, error: pErr } = await supabaseAdmin
         .from('projects')
         .select('id, department_id')
+        .eq('company_id', companyId)
         .in('id', noPoIds);
       if (pErr) throw pErr;
       for (const p of projs ?? []) {
@@ -149,6 +155,7 @@ export async function fetchDashboardDepartmentsBreakdown(params: {
       const { data: prs, error: prErr } = await supabaseAdmin
         .from('purchase_requests')
         .select('id, project_id, projects ( department_id )')
+        .eq('company_id', companyId)
         .in('id', obIds);
       if (prErr) throw prErr;
       for (const pr of prs ?? []) {
@@ -178,6 +185,7 @@ export async function fetchDashboardDepartmentsBreakdown(params: {
     const { data: links, error: linkErr } = await supabaseAdmin
       .from('projects')
       .select('department_id, po_id')
+      .eq('company_id', companyId)
       .not('po_id', 'is', null)
       .in('department_id', allowedCodes);
     if (linkErr) throw linkErr;
@@ -199,6 +207,7 @@ export async function fetchDashboardDepartmentsBreakdown(params: {
     const { data: poRows, error: poErr } = await supabaseAdmin
       .from('purchase_orders')
       .select('id, po_number, vendor, total_value, remaining_value')
+      .eq('company_id', companyId)
       .in('id', allPoIds);
     if (poErr) throw poErr;
 

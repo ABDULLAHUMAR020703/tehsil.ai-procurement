@@ -7,7 +7,7 @@ import { getBrowserSupabase, getSupabaseBrowserConfigError } from '../../lib/sup
 import type { AppPermissionId } from '@/lib/permissions';
 import { APP_PERMISSION_IDS } from '@/lib/permissions';
 
-export type UserRole = 'admin' | 'pm' | 'dept_head' | 'employee';
+export type UserRole = 'admin' | 'pm' | 'dept_head' | 'employee' | 'platform_admin';
 
 /** `departments.code` from the API (dynamic list). */
 export type Department = string;
@@ -18,6 +18,11 @@ export type UserProfile = {
   department?: string | null;
   name?: string | null;
   email?: string | null;
+  companyId?: string | null;
+  companyName?: string | null;
+  companyLogoUrl?: string | null;
+  companyIsActive?: boolean | null;
+  isPlatformAdmin?: boolean;
   /** Effective app permissions (non-admin). Admins bypass checks server-side. */
   permissions?: AppPermissionId[];
 };
@@ -82,6 +87,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         department?: string | null;
         name?: string | null;
         email?: string | null;
+        companyId?: string | null;
+        companyName?: string | null;
+        companyLogoUrl?: string | null;
+        companyIsActive?: boolean | null;
         permissions?: string[];
       };
     };
@@ -91,7 +100,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const permRaw = json.user.permissions;
     const permissions: AppPermissionId[] | undefined =
-      json.user.role === 'admin'
+      json.user.role === 'admin' || json.user.role === 'platform_admin'
         ? undefined
         : Array.isArray(permRaw)
           ? (permRaw.filter((p): p is AppPermissionId =>
@@ -105,6 +114,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       department: json.user.department ?? null,
       name: json.user.name ?? null,
       email: json.user.email ?? null,
+      companyId: json.user.companyId ?? null,
+      companyName: json.user.companyName ?? null,
+      companyLogoUrl: json.user.companyLogoUrl ?? null,
+      companyIsActive: json.user.companyIsActive ?? null,
+      isPlatformAdmin: json.user.role === 'platform_admin',
       permissions,
     });
   };

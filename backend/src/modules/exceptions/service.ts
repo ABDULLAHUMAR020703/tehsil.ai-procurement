@@ -6,11 +6,12 @@ import { startApprovalsForPurchaseRequest } from '../approvals/engine';
 import { bypassesDepartmentScope, isDeptManagerRole, type UserRole } from '../auth/types';
 
 /** no_po reference_id is project id */
-async function assertPmMayDecideNoPo(params: { projectId: string; actorDepartment: string }) {
+async function assertPmMayDecideNoPo(params: { projectId: string; actorDepartment: string; companyId: string }) {
   const { data: project, error } = await supabaseAdmin
     .from('projects')
     .select('id, department_id')
     .eq('id', params.projectId)
+    .eq('company_id', params.companyId)
     .single();
   if (error || !project) throw error ?? new AppError('Referenced project not found', 404);
   if (project.department_id !== params.actorDepartment) {
@@ -21,14 +22,17 @@ async function assertPmMayDecideNoPo(params: { projectId: string; actorDepartmen
 export async function listPendingExceptionsForActor(params: {
   actorRole: UserRole;
   actorDepartment: string | null;
+  companyId?: string;
 }) {
-  const { actorRole, actorDepartment } = params;
-  const { data, error } = await supabaseAdmin
+  const { actorRole, actorDepartment, companyId } = params;
+  let q = supabaseAdmin
     .from('exceptions')
     .select('id, type, reference_id, status, approved_by, created_at')
     .eq('status', 'pending')
     .order('created_at', { ascending: false })
     .limit(200);
+  if (companyId) q = q.eq('company_id', companyId);
+  const { data, error } = await q;
   if (error) throw error;
   const rows = data ?? [];
 
@@ -43,11 +47,12 @@ export async function listPendingExceptionsForActor(params: {
       continue;
     }
     if (ex.type === 'no_po') {
-      const { data: project } = await supabaseAdmin
+      let pq = supabaseAdmin
         .from('projects')
         .select('department_id')
-        .eq('id', ex.reference_id)
-        .maybeSingle();
+        .eq('id', ex.reference_id);
+      if (companyId) pq = pq.eq('company_id', companyId);
+      const { data: project } = await pq.maybeSingle();
       if (project && project.department_id === actorDepartment) out.push(ex);
     }
   }
@@ -60,16 +65,20 @@ export async function decideException(params: {
   actorUserId: string;
   actorRole: UserRole;
   actorDepartment: string | null;
+  companyId?: string;
 }) {
-  const { exceptionId, decision, actorUserId, actorRole, actorDepartment } = params;
+  const { exceptionId, decision, actorUserId, actorRole, actorDepartment, companyId } = params;
 
-  const { data: exception, error: exErr } = await supabaseAdmin
+  let exq = supabaseAdmin
     .from('exceptions')
-    .select('id, type, reference_id, status')
-    .eq('id', exceptionId)
-    .single();
+    .select('id, type, reference_id, status, company_id')
+    .eq('id', exceptionId);
+  if (companyId) exq = exq.eq('company_id', companyId);
+  const { data: exception, error: exErr } = await exq.single();
   if (exErr || !exception) throw exErr ?? new AppError('Exception not found', 404);
   if (exception.status !== 'pending') throw new AppError('Exception already decided', 409);
+
+  const tenantCompanyId = exception.company_id as string;
 
   if (bypassesDepartmentScope(actorRole)) {
     // allowed
@@ -79,7 +88,11 @@ export async function decideException(params: {
         throw new AppError('Only finance department managers (or admin) may decide over-budget exceptions', 403);
       }
     } else if (exception.type === 'no_po') {
-      await assertPmMayDecideNoPo({ projectId: exception.reference_id, actorDepartment });
+      await assertPmMayDecideNoPo({
+        projectId: exception.reference_id,
+        actorDepartment,
+        companyId: tenantCompanyId,
+      });
     } else {
       throw new AppError('Unknown exception type', 400);
     }
@@ -87,13 +100,15 @@ export async function decideException(params: {
     throw new AppError('Not authorized to decide this exception', 403);
   }
 
-  const { error: updErr } = await supabaseAdmin
+  let upd = supabaseAdmin
     .from('exceptions')
     .update({
       status: decision,
       approved_by: actorUserId,
     })
-    .eq('id', exceptionId);
+    .eq('id', exceptionId)
+    .eq('company_id', tenantCompanyId);
+  const { error: updErr } = await upd;
   if (updErr) throw updErr;
 
   if (exception.type === 'no_po') {
@@ -101,6 +116,7 @@ export async function decideException(params: {
       .from('projects')
       .select('id, created_by, status, is_exception, department_id')
       .eq('id', exception.reference_id)
+      .eq('company_id', tenantCompanyId)
       .single();
     if (prjErr || !project) throw prjErr ?? new AppError('Referenced project not found', 404);
 
@@ -111,7 +127,8 @@ export async function decideException(params: {
           status: 'active',
           updated_by: actorUserId,
         })
-        .eq('id', project.id);
+        .eq('id', project.id)
+        .eq('company_id', tenantCompanyId);
       if (prjUpErr) throw prjUpErr;
 
       await recordTrackedAction({
@@ -137,7 +154,8 @@ export async function decideException(params: {
       await supabaseAdmin
         .from('projects')
         .update({ status: 'rejected', updated_by: actorUserId })
-        .eq('id', project.id);
+        .eq('id', project.id)
+        .eq('company_id', tenantCompanyId);
       await recordTrackedAction({
         audit: {
           action: 'exception_no_po_rejected',
@@ -167,6 +185,7 @@ export async function decideException(params: {
       .from('purchase_requests')
       .select('id, amount, project_id, created_by, status')
       .eq('id', exception.reference_id)
+      .eq('company_id', tenantCompanyId)
       .single();
     if (prErr || !pr) throw prErr ?? new AppError('Referenced purchase request not found', 404);
 
@@ -174,6 +193,7 @@ export async function decideException(params: {
       .from('projects')
       .select('department_id')
       .eq('id', pr.project_id as string)
+      .eq('company_id', tenantCompanyId)
       .maybeSingle();
     const prDeptScope = (prScopeRow?.department_id as string | null) ?? null;
 
@@ -181,7 +201,8 @@ export async function decideException(params: {
       const { error: prUpErr } = await supabaseAdmin
         .from('purchase_requests')
         .update({ status: 'pending', updated_by: actorUserId })
-        .eq('id', pr.id);
+        .eq('id', pr.id)
+        .eq('company_id', tenantCompanyId);
       if (prUpErr) throw prUpErr;
 
       await recordTrackedAction({
@@ -209,7 +230,8 @@ export async function decideException(params: {
       await supabaseAdmin
         .from('purchase_requests')
         .update({ status: 'rejected', updated_by: actorUserId })
-        .eq('id', pr.id);
+        .eq('id', pr.id)
+        .eq('company_id', tenantCompanyId);
       await supabaseAdmin
         .from('approvals')
         .update({
@@ -217,7 +239,8 @@ export async function decideException(params: {
           comments: 'Auto-rejected due to over-budget exception rejection',
           updated_by: actorUserId,
         })
-        .eq('request_id', pr.id);
+        .eq('request_id', pr.id)
+        .eq('company_id', tenantCompanyId);
       await recordTrackedAction({
         audit: {
           action: 'exception_over_budget_rejected',

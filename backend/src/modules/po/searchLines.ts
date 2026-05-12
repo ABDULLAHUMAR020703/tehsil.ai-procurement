@@ -3,6 +3,7 @@ import { AppError } from '../../utils/errors';
 import type { UserRole } from '../auth/types';
 import { assertActorMayViewProject, fetchProjectForAccess } from '../projects/projectAccess';
 import { sumPendingAmountsByPoLineIds } from '../purchaseRequests/poLineContext';
+import type { TenantAuth } from '../../tenant/tenantScope';
 
 export type PoSearchLineDto = {
   po_line_sn: string;
@@ -22,10 +23,11 @@ export async function searchPoLinesForProject(params: {
   actorRole: UserRole;
   actorDepartment: string | null;
   actorUserId: string;
+  auth: TenantAuth;
 }): Promise<{ lines: PoSearchLineDto[] }> {
-  const { projectId, q, limit, actorRole, actorDepartment, actorUserId } = params;
+  const { projectId, q, limit, actorRole, actorDepartment, actorUserId, auth } = params;
 
-  const projectAccess = await fetchProjectForAccess(projectId);
+  const projectAccess = await fetchProjectForAccess(projectId, auth);
   await assertActorMayViewProject({
     project: projectAccess,
     actorUserId,
@@ -33,14 +35,8 @@ export async function searchPoLinesForProject(params: {
     actorDepartment,
   });
 
-  const { data: project, error: pErr } = await supabaseAdmin
-    .from('projects')
-    .select('id, po_id, department_id')
-    .eq('id', projectId)
-    .single();
-  if (pErr || !project) throw pErr ?? new AppError('Project not found', 404);
-
-  const poId = project.po_id as string | null;
+  const companyId = projectAccess.company_id;
+  const poId = projectAccess.po_id as string | null;
   if (!poId) {
     return { lines: [] };
   }
@@ -49,6 +45,7 @@ export async function searchPoLinesForProject(params: {
     .from('purchase_orders')
     .select('id, po')
     .eq('id', poId)
+    .eq('company_id', companyId)
     .single();
   if (aErr || !anchor) throw aErr ?? new AppError('Project PO not found', 404);
 
@@ -57,6 +54,7 @@ export async function searchPoLinesForProject(params: {
   let query = supabaseAdmin
     .from('purchase_orders')
     .select('id, po_line_sn, item_code, description, unit_price, remaining_amount, po, line_no')
+    .eq('company_id', companyId)
     .not('po_line_sn', 'is', null);
 
   if (poText) {
@@ -84,7 +82,7 @@ export async function searchPoLinesForProject(params: {
   const slice = filtered.slice(0, Math.min(Math.max(limit, 1), 50));
 
   const ids = slice.map((r) => r.id as string);
-  const pendingMap = await sumPendingAmountsByPoLineIds(ids);
+  const pendingMap = await sumPendingAmountsByPoLineIds(ids, companyId);
 
   const lines: PoSearchLineDto[] = slice.map((r) => {
     const rem = Number(r.remaining_amount);

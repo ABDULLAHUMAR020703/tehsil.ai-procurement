@@ -7,6 +7,7 @@ import type { ApprovalStageRole, RequiredApprovalStageRole, UserRole } from '../
 import { bypassesDepartmentScope, REQUIRED_APPROVAL_STAGE_ORDER } from '../auth/types';
 import { buildApprovalStagesForProject } from '../org/approvers';
 import { fetchProjectOrThrow } from '../org/projectGuards';
+import type { TenantAuth } from '../../tenant/tenantScope';
 
 type ApprovalDecision = 'approved' | 'rejected';
 
@@ -14,24 +15,32 @@ export function getApprovalStageOrder(): readonly RequiredApprovalStageRole[] {
   return REQUIRED_APPROVAL_STAGE_ORDER;
 }
 
-async function departmentScopeForProjectId(projectId: string): Promise<string | null> {
-  const { data } = await supabaseAdmin.from('projects').select('department_id').eq('id', projectId).maybeSingle();
+async function departmentScopeForProjectId(projectId: string, companyId: string): Promise<string | null> {
+  const { data } = await supabaseAdmin
+    .from('projects')
+    .select('department_id')
+    .eq('id', projectId)
+    .eq('company_id', companyId)
+    .maybeSingle();
   return (data?.department_id as string | null) ?? null;
 }
 
 export async function startApprovalsForPurchaseRequest(prId: string, triggeredBy: string) {
   const { data: pr, error: prErr } = await supabaseAdmin
     .from('purchase_requests')
-    .select('id, amount, project_id, created_by, status, duplicate_count')
+    .select('id, company_id, amount, project_id, created_by, status, duplicate_count')
     .eq('id', prId)
     .single();
   if (prErr || !pr) throw prErr ?? new AppError('Purchase request not found', 404);
+
+  const companyId = pr.company_id as string;
+  const tenantForProject: TenantAuth = { userId: triggeredBy, role: 'admin', companyId };
 
   if (pr.status !== 'pending' && pr.status !== 'pending_exception') {
     throw new AppError(`PR cannot start approval workflow from status=${pr.status}`, 409);
   }
 
-  const project = await fetchProjectOrThrow(pr.project_id as string);
+  const project = await fetchProjectOrThrow(pr.project_id as string, tenantForProject);
   const stageList = await buildApprovalStagesForProject(project);
 
   const dupCount = Number(pr.duplicate_count ?? 1);
@@ -44,6 +53,7 @@ export async function startApprovalsForPurchaseRequest(prId: string, triggeredBy
     role: s.role,
     status: 'pending',
     comments: duplicateNote,
+    company_id: companyId,
   }));
 
   const { error: insErr } = await supabaseAdmin.from('approvals').upsert(approvalsToInsert, {
@@ -56,6 +66,7 @@ export async function startApprovalsForPurchaseRequest(prId: string, triggeredBy
     .from('approvals')
     .select('id, approver_id, role')
     .eq('request_id', pr.id)
+    .eq('company_id', companyId)
     .eq('role', firstRole)
     .single();
   if (firstErr || !firstApproval) throw firstErr ?? new AppError('First approval stage missing', 500);
@@ -71,7 +82,7 @@ export async function startApprovalsForPurchaseRequest(prId: string, triggeredBy
       entityId: pr.id as string,
       departmentScope: project.department_id,
     },
-    touch: { table: 'purchase_requests', id: pr.id as string },
+    touch: { table: 'purchase_requests', id: pr.id as string, companyId },
     notify: [
       {
         userId: firstApproval.approver_id as string,
@@ -90,8 +101,12 @@ function humanizeStageLabel(role: ApprovalStageRole): string {
 }
 
 /** Required TL/PM rows that exist for this PR, in workflow order (skips missing TL when not created). */
-async function fetchRequiredRolesForRequest(requestId: string): Promise<RequiredApprovalStageRole[]> {
-  const { data, error } = await supabaseAdmin.from('approvals').select('role').eq('request_id', requestId);
+async function fetchRequiredRolesForRequest(requestId: string, companyId: string): Promise<RequiredApprovalStageRole[]> {
+  const { data, error } = await supabaseAdmin
+    .from('approvals')
+    .select('role')
+    .eq('request_id', requestId)
+    .eq('company_id', companyId);
   if (error) throw error;
   const present = new Set((data ?? []).map((r) => r.role as string));
   const out: RequiredApprovalStageRole[] = [];
@@ -101,11 +116,16 @@ async function fetchRequiredRolesForRequest(requestId: string): Promise<Required
   return out;
 }
 
-function rolesRequiredAreFullyApproved(params: { requestId: string; roles: readonly RequiredApprovalStageRole[] }) {
+function rolesRequiredAreFullyApproved(params: {
+  requestId: string;
+  roles: readonly RequiredApprovalStageRole[];
+  companyId: string;
+}) {
   return supabaseAdmin
     .from('approvals')
     .select('role, status')
     .eq('request_id', params.requestId)
+    .eq('company_id', params.companyId)
     .in('role', [...params.roles])
     .then(({ data, error }) => {
       if (error) throw error;
@@ -161,13 +181,14 @@ function auditPayloadPreview(payload: Record<string, unknown>, maxLen = 2000): s
 }
 
 async function performAdminForceApprove(params: {
-  pr: { id: string; created_by: string; duplicate_count: number | null; status: string };
+  pr: { id: string; created_by: string; duplicate_count: number | null; status: string; company_id: string };
   actorUserId: string;
   comments: string | null;
   touchedApprovalId: string;
   departmentScope: string | null;
 }): Promise<{ prId: string; status: 'approved'; approval: Record<string, unknown> }> {
   const { pr, actorUserId, comments, touchedApprovalId, departmentScope } = params;
+  const companyId = pr.company_id;
   if (pr.status !== 'pending' && pr.status !== 'pending_exception') {
     throw new AppError(`PR is not in a state that allows force approval (status=${pr.status})`, 409);
   }
@@ -176,6 +197,7 @@ async function performAdminForceApprove(params: {
     .from('approvals')
     .select('id')
     .eq('request_id', pr.id)
+    .eq('company_id', companyId)
     .eq('status', 'pending');
   if (pendErr) throw pendErr;
   const pendingIds = (pendingRows ?? []).map((r) => r.id as string);
@@ -196,6 +218,7 @@ async function performAdminForceApprove(params: {
         updated_by: actorUserId,
         is_admin_override: true,
       })
+      .eq('company_id', companyId)
       .in('id', pendingIds);
     if (upErr) throw upErr;
     await writeApprovalAuditLogs({
@@ -215,6 +238,7 @@ async function performAdminForceApprove(params: {
       await supabaseAdmin
         .from('approvals')
         .update({ status: 'pending', is_admin_override: false, updated_by: actorUserId })
+        .eq('company_id', companyId)
         .in('id', pendingIds);
     }
     throw e;
@@ -224,6 +248,7 @@ async function performAdminForceApprove(params: {
     .from('approvals')
     .select('id, request_id, approver_id, role, status, comments, created_at, is_admin_override')
     .eq('id', touchedApprovalId)
+    .eq('company_id', companyId)
     .single();
   if (selErr || !updatedApproval) throw selErr ?? new AppError('Approval row not found after force approve', 500);
 
@@ -259,7 +284,7 @@ async function performAdminForceApprove(params: {
     departmentScope,
   });
 
-  await touchEntityRow('purchase_requests', pr.id, actorUserId);
+  await touchEntityRow('purchase_requests', pr.id, actorUserId, companyId);
   await deliverTrackedNotifications([
     {
       userId: pr.created_by,
@@ -273,12 +298,13 @@ async function performAdminForceApprove(params: {
 }
 
 async function performAdminRejectEntirePr(params: {
-  pr: { id: string; created_by: string; status: string };
+  pr: { id: string; created_by: string; status: string; company_id: string };
   actorUserId: string;
   reason: string;
   departmentScope: string | null;
 }): Promise<{ prId: string; status: 'rejected'; approval: null }> {
   const { pr, actorUserId, reason, departmentScope } = params;
+  const companyId = pr.company_id;
   if (pr.status !== 'pending' && pr.status !== 'pending_exception') {
     throw new AppError(`PR is not rejectable (status=${pr.status})`, 409);
   }
@@ -287,6 +313,7 @@ async function performAdminRejectEntirePr(params: {
     .from('approvals')
     .select('id')
     .eq('request_id', pr.id)
+    .eq('company_id', companyId)
     .eq('status', 'pending');
   if (error) throw error;
   const pendingIds = (pendingRows ?? []).map((r) => r.id as string);
@@ -295,7 +322,8 @@ async function performAdminRejectEntirePr(params: {
   const { error: prRej } = await supabaseAdmin
     .from('purchase_requests')
     .update({ status: 'rejected', updated_by: actorUserId })
-    .eq('id', pr.id);
+    .eq('id', pr.id)
+    .eq('company_id', companyId);
   if (prRej) throw prRej;
 
   if (pendingIds.length > 0) {
@@ -307,6 +335,7 @@ async function performAdminRejectEntirePr(params: {
         updated_by: actorUserId,
         is_admin_override: true,
       })
+      .eq('company_id', companyId)
       .in('id', pendingIds);
     if (apRej) throw apRej;
     await writeApprovalAuditLogs({
@@ -347,14 +376,16 @@ export async function decideApproval(params: {
   comments?: string | null;
   actorUserId: string;
   actorRole: UserRole;
+  companyId: string;
 }) {
-  const { approvalId, decision, comments, actorUserId, actorRole } = params;
+  const { approvalId, decision, comments, actorUserId, actorRole, companyId } = params;
   const decisionNormalized = decision === 'approved' ? 'approved' : 'rejected';
 
   const { data: approval, error: apprErr } = await supabaseAdmin
     .from('approvals')
     .select('id, request_id, approver_id, role, status')
     .eq('id', approvalId)
+    .eq('company_id', companyId)
     .single();
   if (apprErr || !approval) throw apprErr ?? new AppError('Approval not found', 404);
 
@@ -362,8 +393,11 @@ export async function decideApproval(params: {
 
   const { data: pr, error: prErr } = await supabaseAdmin
     .from('purchase_requests')
-    .select('id, amount, project_id, created_by, status, duplicate_count, po_line_id, budget_deducted')
+    .select(
+      'id, company_id, amount, project_id, created_by, status, duplicate_count, po_line_id, budget_deducted',
+    )
     .eq('id', approval.request_id)
+    .eq('company_id', companyId)
     .single();
   if (prErr || !pr) throw prErr ?? new AppError('Purchase request not found', 404);
 
@@ -371,7 +405,7 @@ export async function decideApproval(params: {
     throw new AppError(`PR is not in a deciable state (status=${pr.status})`, 409);
   }
 
-  const departmentScope = await departmentScopeForProjectId(pr.project_id as string);
+  const departmentScope = await departmentScopeForProjectId(pr.project_id as string, companyId);
 
   if (bypassesDepartmentScope(actorRole) && decisionNormalized === 'rejected') {
     return performAdminRejectEntirePr({
@@ -379,6 +413,7 @@ export async function decideApproval(params: {
         id: pr.id as string,
         created_by: pr.created_by as string,
         status: pr.status as string,
+        company_id: companyId,
       },
       actorUserId,
       reason: comments?.trim() || 'No reason provided.',
@@ -396,6 +431,7 @@ export async function decideApproval(params: {
           created_by: pr.created_by as string,
           duplicate_count: pr.duplicate_count as number | null,
           status: pr.status as string,
+          company_id: companyId,
         },
         actorUserId,
         comments: comments ?? null,
@@ -414,7 +450,7 @@ export async function decideApproval(params: {
     );
   }
 
-  const requiredRoles = await fetchRequiredRolesForRequest(pr.id as string);
+  const requiredRoles = await fetchRequiredRolesForRequest(pr.id as string, companyId);
   const stageRole = approval.role as RequiredApprovalStageRole;
   if (!requiredRoles.includes(stageRole)) {
     throw new AppError('Approval role not part of required sequence for this request', 400);
@@ -427,6 +463,7 @@ export async function decideApproval(params: {
       .from('approvals')
       .select('role, status')
       .eq('request_id', pr.id)
+      .eq('company_id', companyId)
       .in('role', previousRoles);
     if (prevErr) throw prevErr;
     const prevMap = new Map((prevApprovals ?? []).map((r) => [r.role as RequiredApprovalStageRole, r.status]));
@@ -449,6 +486,7 @@ export async function decideApproval(params: {
       is_admin_override: false,
     })
     .eq('id', approval.id)
+    .eq('company_id', companyId)
     .eq('status', 'pending')
     .select('id, request_id, approver_id, role, status, comments, created_at, is_admin_override');
   if (updErr) throw updErr;
@@ -468,6 +506,7 @@ export async function decideApproval(params: {
       .from('approvals')
       .select('id')
       .eq('request_id', pr.id)
+      .eq('company_id', companyId)
       .eq('status', 'pending');
     if (cascadeSelErr) throw cascadeSelErr;
     const cascadeIds = (cascadePending ?? []).map((r) => r.id as string);
@@ -475,7 +514,8 @@ export async function decideApproval(params: {
     const { error: prRejErr } = await supabaseAdmin
       .from('purchase_requests')
       .update({ status: 'rejected', updated_by: actorUserId })
-      .eq('id', pr.id);
+      .eq('id', pr.id)
+      .eq('company_id', companyId);
     if (prRejErr) throw prRejErr;
 
     await supabaseAdmin
@@ -486,6 +526,7 @@ export async function decideApproval(params: {
         updated_by: actorUserId,
       })
       .eq('request_id', pr.id)
+      .eq('company_id', companyId)
       .eq('status', 'pending');
 
     if (cascadeIds.length > 0) {
@@ -521,7 +562,11 @@ export async function decideApproval(params: {
     return { prId: pr.id, status: 'rejected' as const, approval: updatedApproval };
   }
 
-  const fullyApproved = await rolesRequiredAreFullyApproved({ requestId: pr.id as string, roles: requiredRoles });
+  const fullyApproved = await rolesRequiredAreFullyApproved({
+    requestId: pr.id as string,
+    roles: requiredRoles,
+    companyId,
+  });
   if (!fullyApproved) {
     const nextRole = requiredRoles[currentIndex + 1];
     if (!nextRole) throw new AppError('Next role not found', 500);
@@ -530,6 +575,7 @@ export async function decideApproval(params: {
       .from('approvals')
       .select('id, approver_id, role')
       .eq('request_id', pr.id)
+      .eq('company_id', companyId)
       .eq('role', nextRole)
       .single();
     if (nextErr || !nextApproval) throw nextErr ?? new AppError('Next approval stage missing', 500);
@@ -544,7 +590,7 @@ export async function decideApproval(params: {
         changes: { stage: approval.role, approvalStatus: { after: 'approved' } },
         departmentScope,
       },
-      touch: { table: 'purchase_requests', id: pr.id as string },
+      touch: { table: 'purchase_requests', id: pr.id as string, companyId },
       notify: [
         {
           userId: nextApproval.approver_id as string,
@@ -572,7 +618,8 @@ export async function decideApproval(params: {
     await supabaseAdmin
       .from('approvals')
       .update({ status: 'pending', updated_by: actorUserId })
-      .eq('id', approval.id);
+      .eq('id', approval.id)
+      .eq('company_id', companyId);
     throw e;
   }
 
@@ -604,7 +651,7 @@ export async function decideApproval(params: {
     departmentScope,
   });
 
-  await touchEntityRow('purchase_requests', pr.id as string, actorUserId);
+  await touchEntityRow('purchase_requests', pr.id as string, actorUserId, companyId);
   await deliverTrackedNotifications([
     {
       userId: pr.created_by as string,
@@ -622,24 +669,27 @@ export async function adminOverridePurchaseRequest(params: {
   decision: ApprovalDecision;
   reason: string;
   actorUserId: string;
+  companyId: string;
 }) {
-  const { requestId, decision, reason, actorUserId } = params;
+  const { requestId, decision, reason, actorUserId, companyId } = params;
   const decisionNormalized = decision === 'approved' ? 'approved' : 'rejected';
 
   const { data: pr, error: prErr } = await supabaseAdmin
     .from('purchase_requests')
     .select('id, status, created_by, amount, project_id, po_line_id, budget_deducted')
     .eq('id', requestId)
+    .eq('company_id', companyId)
     .single();
   if (prErr || !pr) throw prErr ?? new AppError('Purchase request not found', 404);
 
-  const departmentScope = await departmentScopeForProjectId(pr.project_id as string);
+  const departmentScope = await departmentScopeForProjectId(pr.project_id as string, companyId);
 
   if (decisionNormalized === 'rejected') {
     const { data: pendingRejectIds, error: pendRejErr } = await supabaseAdmin
       .from('approvals')
       .select('id')
       .eq('request_id', pr.id)
+      .eq('company_id', companyId)
       .eq('status', 'pending');
     if (pendRejErr) throw pendRejErr;
     const rejIds = (pendingRejectIds ?? []).map((r) => r.id as string);
@@ -647,7 +697,8 @@ export async function adminOverridePurchaseRequest(params: {
     const { error: prRejErr } = await supabaseAdmin
       .from('purchase_requests')
       .update({ status: 'rejected', updated_by: actorUserId })
-      .eq('id', pr.id);
+      .eq('id', pr.id)
+      .eq('company_id', companyId);
     if (prRejErr) throw prRejErr;
 
     if (rejIds.length > 0) {
@@ -659,6 +710,7 @@ export async function adminOverridePurchaseRequest(params: {
           updated_by: actorUserId,
           is_admin_override: true,
         })
+        .eq('company_id', companyId)
         .in('id', rejIds);
       if (approvalsCloseErr) throw approvalsCloseErr;
       await writeApprovalAuditLogs({
@@ -684,6 +736,7 @@ export async function adminOverridePurchaseRequest(params: {
         .from('purchase_requests')
         .select('id, status, created_by')
         .eq('id', pr.id)
+        .eq('company_id', companyId)
         .single();
       if (updatedPrErr || !updatedPr) throw updatedPrErr ?? new AppError('Updated purchase request not found', 500);
       await writeAuditLog({
@@ -702,6 +755,7 @@ export async function adminOverridePurchaseRequest(params: {
       .from('approvals')
       .select('id')
       .eq('request_id', pr.id)
+      .eq('company_id', companyId)
       .eq('status', 'pending');
     if (pendApprErr) throw pendApprErr;
     const approveIds = (pendingApproveIds ?? []).map((r) => r.id as string);
@@ -716,6 +770,7 @@ export async function adminOverridePurchaseRequest(params: {
           updated_by: actorUserId,
           is_admin_override: true,
         })
+        .eq('company_id', companyId)
         .in('id', approveIds);
       if (approvalsSkipErr) throw approvalsSkipErr;
     }
@@ -728,6 +783,7 @@ export async function adminOverridePurchaseRequest(params: {
         await supabaseAdmin
           .from('approvals')
           .update({ status: 'pending', is_admin_override: false, updated_by: actorUserId })
+          .eq('company_id', companyId)
           .in('id', approveIds);
       }
       throw e;
@@ -768,6 +824,7 @@ export async function adminOverridePurchaseRequest(params: {
     .from('purchase_requests')
     .select('id, status, created_by')
     .eq('id', pr.id)
+    .eq('company_id', companyId)
     .single();
   if (updatedPrErr || !updatedPr) throw updatedPrErr ?? new AppError('Updated purchase request not found', 500);
 

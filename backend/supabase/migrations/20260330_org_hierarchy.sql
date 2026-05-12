@@ -19,6 +19,13 @@ alter table public.users
 -- Enforce admin → management (adjust emails/rows as needed for your org)
 update public.users set department = 'management' where role = 'admin';
 
+-- Any legacy / custom department codes must fit the CHECK below (production may have
+-- values like operations, procurement, ibs, etc. before later migrations widen the model).
+update public.users
+set department = 'technical'
+where department is not null
+  and department not in ('sales', 'hr', 'technical', 'finance', 'engineering', 'management');
+
 alter table public.users alter column department set not null;
 
 alter table public.users drop constraint if exists users_department_check;
@@ -40,6 +47,11 @@ from public.users u
 where p.created_by = u.id and p.department is null;
 
 update public.projects set department = 'technical' where department is null;
+
+update public.projects
+set department = 'technical'
+where department is not null
+  and department not in ('sales', 'hr', 'technical', 'finance', 'engineering', 'management');
 
 alter table public.projects drop constraint if exists projects_department_check;
 alter table public.projects

@@ -11,6 +11,7 @@ import { notificationsRouter } from '../modules/notifications/routes';
 import { auditLogsRouter } from '../modules/auditLogs/routes';
 import { dashboardRouter } from '../modules/dashboard/routes';
 import { permissionsRouter } from '../modules/permissions/routes';
+import { platformRouter } from '../modules/platform/routes';
 
 export const apiRouter = Router();
 
@@ -26,4 +27,5 @@ apiRouter.use('/notifications', notificationsRouter);
 apiRouter.use('/audit-logs', auditLogsRouter);
 apiRouter.use('/dashboard', dashboardRouter);
 apiRouter.use('/permissions', permissionsRouter);
+apiRouter.use('/platform', platformRouter);
 

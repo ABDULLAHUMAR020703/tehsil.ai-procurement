@@ -19,14 +19,18 @@ export type UserPermissionRow = {
   is_admin: boolean;
 };
 
-export async function listUsersWithPermissions(): Promise<UserPermissionRow[]> {
+export async function listUsersWithPermissions(companyId: string): Promise<UserPermissionRow[]> {
   const { data: users, error: uErr } = await supabaseAdmin
     .from('users')
     .select('id, name, department, role')
+    .eq('company_id', companyId)
     .order('name', { ascending: true });
   if (uErr) throw uErr;
 
-  const { data: permRows, error: pErr } = await supabaseAdmin.from('user_permissions').select('user_id, permission');
+  const { data: permRows, error: pErr } = await supabaseAdmin
+    .from('user_permissions')
+    .select('user_id, permission')
+    .eq('company_id', companyId);
   if (pErr) throw pErr;
 
   const byUser = new Map<string, Set<AppPermission>>();
@@ -70,8 +74,9 @@ export async function replaceUserPermissions(params: {
   actorRole: UserRole;
   targetUserId: string;
   permissions: AppPermission[];
+  companyId: string;
 }): Promise<{ user_id: string; permissions: AppPermission[] }> {
-  const { actorRole, targetUserId, permissions } = params;
+  const { actorRole, targetUserId, permissions, companyId } = params;
   if (!bypassesDepartmentScope(actorRole)) throw new AppError('Forbidden', 403);
 
   const unique = [...new Set(permissions)];
@@ -81,11 +86,14 @@ export async function replaceUserPermissions(params: {
 
   const { data: target, error: tErr } = await supabaseAdmin
     .from('users')
-    .select('id, role')
+    .select('id, role, company_id')
     .eq('id', targetUserId)
     .maybeSingle();
   if (tErr) throw tErr;
   if (!target) throw new AppError('User not found', 404);
+  if ((target.company_id as string) !== companyId) {
+    throw new AppError('User not found', 404);
+  }
   if ((target.role as string) === 'admin') {
     throw new AppError('Admin users always have full access; permissions are not stored for them.', 400);
   }
@@ -93,13 +101,17 @@ export async function replaceUserPermissions(params: {
   const targetRole = normalizeRoleKey(target.role as string);
   const toStore = extrasBeyondRoleDefaults(targetRole, unique);
 
-  const { error: delErr } = await supabaseAdmin.from('user_permissions').delete().eq('user_id', targetUserId);
+  const { error: delErr } = await supabaseAdmin
+    .from('user_permissions')
+    .delete()
+    .eq('user_id', targetUserId)
+    .eq('company_id', companyId);
   if (delErr) throw delErr;
 
   if (toStore.length > 0) {
-    const { error: insErr } = await supabaseAdmin
-      .from('user_permissions')
-      .insert(toStore.map((permission) => ({ user_id: targetUserId, permission })));
+    const { error: insErr } = await supabaseAdmin.from('user_permissions').insert(
+      toStore.map((permission) => ({ user_id: targetUserId, permission, company_id: companyId })),
+    );
     if (insErr) throw insErr;
   }
 

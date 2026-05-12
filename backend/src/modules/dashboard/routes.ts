@@ -8,6 +8,7 @@ import { fetchDashboardDepartmentsBreakdown } from './departmentsBreakdown';
 import { fetchActivityFeed } from './service';
 import { hasPermission, requireAnyPermission } from '../../middleware/permissions';
 import type { AppPermission } from '../permissions/types';
+import { companyScopeForRequest } from '../../tenant/requestCompanyId';
 
 export const dashboardRouter = Router();
 
@@ -41,6 +42,7 @@ dashboardRouter.get('/departments', async (req, res, next) => {
       section: q.data,
       actorRole: role,
       actorDepartment,
+      companyId: companyScopeForRequest(req),
     });
     res.json(payload);
   } catch (err) {
@@ -50,22 +52,25 @@ dashboardRouter.get('/departments', async (req, res, next) => {
 
 dashboardRouter.get('/', async (req, res, next) => {
   try {
+    const cid = companyScopeForRequest(req);
     const [
       { count: projectsCount, error: projectsErr },
       { count: pendingApprovalsCount, error: approvalsErr },
       { count: pendingExceptionsCount, error: exceptionsErr },
       { count: poRecordsCount, error: poErr },
     ] = await Promise.all([
-      supabaseAdmin.from('projects').select('*', { count: 'exact', head: true }),
+      supabaseAdmin.from('projects').select('*', { count: 'exact', head: true }).eq('company_id', cid),
       supabaseAdmin
         .from('approvals')
         .select('*', { count: 'exact', head: true })
+        .eq('company_id', cid)
         .eq('status', 'pending'),
       supabaseAdmin
         .from('exceptions')
         .select('*', { count: 'exact', head: true })
+        .eq('company_id', cid)
         .eq('status', 'pending'),
-      supabaseAdmin.from('purchase_orders').select('*', { count: 'exact', head: true }),
+      supabaseAdmin.from('purchase_orders').select('*', { count: 'exact', head: true }).eq('company_id', cid),
     ]);
 
     if (projectsErr) throw projectsErr;
@@ -83,6 +88,7 @@ dashboardRouter.get('/', async (req, res, next) => {
       actorRole: role,
       actorDepartment,
       filterDepartment,
+      companyId: cid,
     });
 
     const head = activityFeed[0] ?? null;

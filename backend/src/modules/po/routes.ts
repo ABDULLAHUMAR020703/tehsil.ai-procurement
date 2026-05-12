@@ -16,6 +16,7 @@ import { attachLastUpdatedFields } from '../auditLogs/lastUpdated';
 import { getLastTransactionForPO } from './lastTransaction';
 import { bypassesDepartmentScope, isDeptManagerRole, type UserRole } from '../auth/types';
 import { requirePermission } from '../../middleware/permissions';
+import { companyScopeForRequest } from '../../tenant/requestCompanyId';
 
 export const poRouter = Router();
 
@@ -37,7 +38,7 @@ function lineItemToPayload(
   row: ParsedLineItemRow,
   existing: Record<string, unknown> | null,
   actorUserId: string,
-  options: { enforceUploaderDepartment: string | null },
+  options: { enforceUploaderDepartment: string | null; companyId: string },
 ) {
   const ex = existing ?? {};
   const po_amount = row.po_amount;
@@ -71,6 +72,7 @@ function lineItemToPayload(
 
   const base: Record<string, unknown> = {
     ...rest,
+    company_id: options.companyId,
     po: row.po,
     po_line_sn: row.po_line_sn,
     item_code: row.item_code,
@@ -111,6 +113,7 @@ async function handleLineItemUpload(params: {
   actorUserId: string;
   actorRole: UserRole;
   actorDepartment: string | null;
+  companyId: string;
 }): Promise<{
   totalRows: number;
   inserted: number;
@@ -118,7 +121,7 @@ async function handleLineItemUpload(params: {
   failed: number;
   firstEntityId: string | null;
 }> {
-  const { rows, actorUserId, actorRole, actorDepartment } = params;
+  const { rows, actorUserId, actorRole, actorDepartment, companyId } = params;
   const enforceDept = isDeptManagerRole(actorRole) ? actorDepartment : null;
 
   let inserted = 0;
@@ -131,18 +134,21 @@ async function handleLineItemUpload(params: {
       const { data: existing, error: findErr } = await supabaseAdmin
         .from('purchase_orders')
         .select('*')
+        .eq('company_id', companyId)
         .eq('po_line_sn', row.po_line_sn)
         .maybeSingle();
       if (findErr) throw findErr;
 
       const payload = lineItemToPayload(row, existing, actorUserId, {
         enforceUploaderDepartment: enforceDept,
+        companyId,
       });
 
       if (existing?.id) {
         const { data: upd, error: updErr } = await supabaseAdmin
           .from('purchase_orders')
           .update(payload)
+          .eq('company_id', companyId)
           .eq('id', existing.id as string)
           .select('id')
           .single();
@@ -176,6 +182,7 @@ poRouter.post('/upload', requireRole('admin', 'pm', 'dept_head'), upload.single(
     const actorUserId = req.auth!.userId;
     const actorRole = req.auth!.role;
     const actorDepartment = req.auth!.department ?? null;
+    const cid = companyScopeForRequest(req);
     if (!req.file) throw new AppError('Missing `file` upload field', 400);
 
     const parsed = parsePoUploadFile({
@@ -194,6 +201,7 @@ poRouter.post('/upload', requireRole('admin', 'pm', 'dept_head'), upload.single(
         actorUserId,
         actorRole,
         actorDepartment,
+        companyId: cid,
       });
 
       const { data: actor } = await supabaseAdmin
@@ -205,7 +213,7 @@ poRouter.post('/upload', requireRole('admin', 'pm', 'dept_head'), upload.single(
       const actorLabel = String(actor?.name ?? actor?.email ?? actorUserId);
 
       const deptScope = isDeptManagerRole(actorRole) ? actorDepartment : null;
-      const adminIds = await getAdminUserIds();
+      const adminIds = await getAdminUserIds(cid);
       const uploadSummary = `PO data upload (${result.inserted} inserted, ${result.updated} updated, ${result.failed} failed). Uploaded by ${actorLabel}.`;
       const notifyEntries = adminIds.map((id) => ({
         userId: id,
@@ -270,7 +278,8 @@ poRouter.post('/upload', requireRole('admin', 'pm', 'dept_head'), upload.single(
 
     const { data: existingRows, error: existingErr } = await supabaseAdmin
       .from('purchase_orders')
-      .select('id, vendor, po_number, total_value, remaining_value');
+      .select('id, vendor, po_number, total_value, remaining_value')
+      .eq('company_id', cid);
     if (existingErr) throw existingErr;
 
     const existingByVendor = new Map<string, { id: string; vendor: string; total_value: number; remaining_value: number }>();
@@ -305,6 +314,7 @@ poRouter.post('/upload', requireRole('admin', 'pm', 'dept_head'), upload.single(
             uploaded_by: actorUserId,
             updated_by: actorUserId,
           })
+          .eq('company_id', cid)
           .eq('id', existing.id)
           .select('id')
           .single();
@@ -322,6 +332,7 @@ poRouter.post('/upload', requireRole('admin', 'pm', 'dept_head'), upload.single(
             remaining_value: item.total_value,
             uploaded_by: actorUserId,
             updated_by: actorUserId,
+            company_id: cid,
           })
           .select('id')
           .single();
@@ -333,7 +344,7 @@ poRouter.post('/upload', requireRole('admin', 'pm', 'dept_head'), upload.single(
 
     if (touchedIds.length === 0) throw new AppError('PO upload produced no changes', 500);
 
-    const adminIds = await getAdminUserIds();
+    const adminIds = await getAdminUserIds(cid);
     const legacyMsg = `Legacy PO upload (${added} added, ${updated} updated).`;
     await recordTrackedAction({
       audit: {
@@ -383,6 +394,11 @@ poRouter.get('/search', requireRole('admin', 'pm', 'dept_head', 'employee'), asy
       actorRole: req.auth!.role,
       actorDepartment: req.auth!.department ?? null,
       actorUserId: req.auth!.userId,
+      auth: {
+        userId: req.auth!.userId,
+        role: req.auth!.role,
+        companyId: companyScopeForRequest(req),
+      },
     });
     res.json({ lines });
   } catch (err) {
@@ -394,12 +410,14 @@ poRouter.get('/', requireRole('admin', 'pm', 'dept_head', 'employee'), async (re
   const actorRole = req.auth!.role;
   const actorUserId = req.auth!.userId;
   const actorDepartment = req.auth!.department ?? null;
+  const cid = companyScopeForRequest(req);
 
   let q = supabaseAdmin
     .from('purchase_orders')
     .select(
       'id, po_number, vendor, total_value, remaining_value, uploaded_by, created_at, updated_at, updated_by, po, po_line_sn, item_code, description, unit_price, line_no, department, project_name, po_amount, remaining_amount, issue_date, customer',
     )
+    .eq('company_id', cid)
     .order('created_at', { ascending: false })
     .limit(500);
 
@@ -410,11 +428,13 @@ poRouter.get('/', requireRole('admin', 'pm', 'dept_head', 'employee'), async (re
         const visible = await loadEmployeeVisibleProjectIds({
           userId: actorUserId,
           department: actorDepartment,
+          companyId: cid,
         });
         if (visible.length > 0) {
           const { data: projs, error: pErr } = await supabaseAdmin
             .from('projects')
             .select('po_id')
+            .eq('company_id', cid)
             .in('id', visible)
             .not('po_id', 'is', null);
           if (pErr) throw pErr;
@@ -424,6 +444,7 @@ poRouter.get('/', requireRole('admin', 'pm', 'dept_head', 'employee'), async (re
         const { data: projs, error: pErr } = await supabaseAdmin
           .from('projects')
           .select('po_id')
+          .eq('company_id', cid)
           .eq('department_id', actorDepartment)
           .not('po_id', 'is', null);
         if (pErr) throw pErr;
