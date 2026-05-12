@@ -8,6 +8,8 @@ declare global {
         userId: string;
         role: UserRole;
         companyId: string;
+        /** Tenant for data queries; equals `companyId` unless `platform_admin` passes `?companyId=<uuid>`. */
+        scopedCompanyId: string;
         companyName?: string | null;
         companyLogoUrl?: string | null;
         companyIsActive?: boolean;

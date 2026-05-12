@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../../middleware/auth';
 import { supabaseAdmin } from '../../config/supabase';
+import { companyScopeForRequest } from '../../tenant/requestCompanyId';
 
 export const notificationsRouter = Router();
 
@@ -9,7 +10,7 @@ notificationsRouter.use(requireAuth);
 notificationsRouter.get('/', async (req, res, next) => {
   try {
     const userId = req.auth!.userId;
-    const cid = req.auth!.companyId;
+    const cid = companyScopeForRequest(req);
     const { data, error } = await supabaseAdmin
       .from('notifications')
       .select('id, type, message, is_read, created_at')
@@ -28,7 +29,7 @@ notificationsRouter.post('/mark-read/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
     const userId = req.auth!.userId;
-    const cid = req.auth!.companyId;
+    const cid = companyScopeForRequest(req);
     const { error } = await supabaseAdmin
       .from('notifications')
       .update({ is_read: true })

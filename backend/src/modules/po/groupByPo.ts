@@ -1,6 +1,7 @@
 /** Rows returned from GET /api/po before grouping. */
 export type PurchaseOrderDbRow = {
   id: string;
+  company_id?: string;
   po_number: string | null;
   vendor: string | null;
   total_value: number | string | null;

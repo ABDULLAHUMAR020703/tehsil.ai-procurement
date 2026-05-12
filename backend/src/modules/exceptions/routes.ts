@@ -3,7 +3,7 @@ import { requireAuth } from '../../middleware/auth';
 import { requireRole } from '../../middleware/rbac';
 import { z } from 'zod';
 import { decideException, listPendingExceptionsForActor } from './service';
-import { isPlatformAdminRole } from '../auth/types';
+import { companyScopeForRequest } from '../../tenant/requestCompanyId';
 import { requirePermission } from '../../middleware/permissions';
 
 export const exceptionsRouter = Router();
@@ -16,7 +16,7 @@ exceptionsRouter.get('/', requireRole('admin', 'pm', 'dept_head', 'platform_admi
     const exceptions = await listPendingExceptionsForActor({
       actorRole: req.auth!.role,
       actorDepartment: req.auth!.department ?? null,
-      companyId: isPlatformAdminRole(req.auth!.role) ? undefined : req.auth!.companyId,
+      companyId: companyScopeForRequest(req),
     });
     res.json({ exceptions });
   } catch (err) {
@@ -38,7 +38,7 @@ exceptionsRouter.post('/:id/approve', requireRole('admin', 'pm', 'dept_head', 'p
       actorUserId: req.auth!.userId,
       actorRole: req.auth!.role,
       actorDepartment: req.auth!.department ?? null,
-      companyId: isPlatformAdminRole(req.auth!.role) ? undefined : req.auth!.companyId,
+      companyId: companyScopeForRequest(req),
     });
     res.json({ ok: true, result });
   } catch (err) {
@@ -56,7 +56,7 @@ exceptionsRouter.post('/:id/reject', requireRole('admin', 'pm', 'dept_head', 'pl
       actorUserId: req.auth!.userId,
       actorRole: req.auth!.role,
       actorDepartment: req.auth!.department ?? null,
-      companyId: isPlatformAdminRole(req.auth!.role) ? undefined : req.auth!.companyId,
+      companyId: companyScopeForRequest(req),
     });
     res.json({ ok: true, result });
   } catch (err) {

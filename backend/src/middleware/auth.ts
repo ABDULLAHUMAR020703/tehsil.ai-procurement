@@ -1,4 +1,5 @@
 import type { RequestHandler } from 'express';
+import { z } from 'zod';
 import { supabaseAdmin } from '../config/supabase';
 import { AppError } from '../utils/errors';
 import { bypassesDepartmentScope, isPlatformAdminRole, type UserRole } from '../modules/auth/types';
@@ -46,6 +47,16 @@ export const requireAuth: RequestHandler = async (req, _res, next) => {
     return next(new AppError('Company is suspended', 403));
   }
 
+  let scopedCompanyId = companyId;
+  const qCompany = req.query.companyId;
+  if (
+    isPlatformAdminRole(role) &&
+    typeof qCompany === 'string' &&
+    z.string().uuid().safeParse(qCompany.trim()).success
+  ) {
+    scopedCompanyId = qCompany.trim();
+  }
+
   let permissions: AppPermission[] = [];
   if (bypassesDepartmentScope(role)) {
     permissions = [...APP_PERMISSIONS];
@@ -66,6 +77,7 @@ export const requireAuth: RequestHandler = async (req, _res, next) => {
     userId,
     role,
     companyId,
+    scopedCompanyId,
     companyName: company.name ?? null,
     companyLogoUrl: company.logo_url ?? null,
     companyIsActive: company.is_active,

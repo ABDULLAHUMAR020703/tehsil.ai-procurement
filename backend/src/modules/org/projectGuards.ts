@@ -1,7 +1,8 @@
 import { supabaseAdmin } from '../../config/supabase';
 import { AppError } from '../../utils/errors';
 import type { TenantAuth } from '../../tenant/tenantScope';
-import { isPlatformAdminRole, bypassesDepartmentScope, isDeptManagerRole, type UserRole } from '../auth/types';
+import { tenantFilterCompanyId } from '../../tenant/tenantScope';
+import { bypassesDepartmentScope, isDeptManagerRole, type UserRole } from '../auth/types';
 
 export type ProjectRow = {
   id: string;
@@ -23,8 +24,9 @@ export async function fetchProjectOrThrow(projectId: string, auth?: TenantAuth):
     .from('projects')
     .select('id, company_id, department_id, team_lead_id, pm_id, created_by, status')
     .eq('id', projectId);
-  if (auth && !isPlatformAdminRole(auth.role)) {
-    q = q.eq('company_id', auth.companyId);
+  if (auth) {
+    const cid = tenantFilterCompanyId(auth);
+    if (cid) q = q.eq('company_id', cid);
   }
   const { data: project, error } = await q.single();
   if (error || !project) throw error ?? new AppError('Project not found', 404);

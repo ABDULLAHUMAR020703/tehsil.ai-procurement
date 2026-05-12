@@ -4,7 +4,7 @@ import { requireRole } from '../../middleware/rbac';
 import { supabaseAdmin } from '../../config/supabase';
 import { z } from 'zod';
 import { AppError } from '../../utils/errors';
-import { bypassesDepartmentScope, isPlatformAdminRole } from '../auth/types';
+import { bypassesDepartmentScope } from '../auth/types';
 import { assertDepartmentExists } from '../departments/service';
 import { companyScopeForRequest } from '../../tenant/requestCompanyId';
 
@@ -71,23 +71,14 @@ usersRouter.patch('/:id', requireRole('admin', 'platform_admin'), async (req, re
       throw new AppError('No updates provided', 400);
     }
 
-    let loadQ = supabaseAdmin.from('users').select('id, name, email, role, department, company_id').eq('id', userId);
-    if (!isPlatformAdminRole(req.auth!.role)) {
-      loadQ = loadQ.eq('company_id', req.auth!.companyId);
-    }
+    const companyScope = companyScopeForRequest(req);
+    const loadQ = supabaseAdmin
+      .from('users')
+      .select('id, name, email, role, department, company_id')
+      .eq('id', userId)
+      .eq('company_id', companyScope);
     const { data: row, error: loadErr } = await loadQ.single();
     if (loadErr || !row) throw loadErr ?? new AppError('User not found', 404);
-
-    if (!isPlatformAdminRole(req.auth!.role) && (row.company_id as string) !== req.auth!.companyId) {
-      throw new AppError('User not found', 404);
-    }
-
-    if (isPlatformAdminRole(req.auth!.role)) {
-      const qcid = typeof req.query.companyId === 'string' ? req.query.companyId.trim() : '';
-      if (qcid && z.string().uuid().safeParse(qcid).success && (row.company_id as string) !== qcid) {
-        throw new AppError('User not found', 404);
-      }
-    }
 
     if (parsed.department !== undefined) {
       await assertDepartmentExists(parsed.department, row.company_id as string);
@@ -112,19 +103,15 @@ usersRouter.patch('/:id', requireRole('admin', 'platform_admin'), async (req, re
       throw new AppError('Only admin users may belong to the management department', 400);
     }
 
-    let updQ = supabaseAdmin
+    const updQ = supabaseAdmin
       .from('users')
       .update({
         name: merged.name,
         role: merged.role,
         department: merged.department,
       })
-      .eq('id', userId);
-    if (!isPlatformAdminRole(req.auth!.role)) {
-      updQ = updQ.eq('company_id', req.auth!.companyId);
-    } else {
-      updQ = updQ.eq('company_id', row.company_id as string);
-    }
+      .eq('id', userId)
+      .eq('company_id', companyScope);
 
     const { data, error } = await updQ.select('id,name,email,role,department,job_title,created_at').single();
     if (error) throw error;

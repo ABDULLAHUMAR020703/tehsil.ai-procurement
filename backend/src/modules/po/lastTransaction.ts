@@ -24,15 +24,26 @@ async function resolvePoGroupRows(anchorId: string): Promise<PurchaseOrderDbRow[
   if (aErr || !anchor) return [];
 
   const row = anchor as PurchaseOrderDbRow;
+  const companyId = row.company_id;
+  if (!companyId) return [row];
+
   const poKey = String(row.po ?? '').trim();
   if (poKey) {
-    const { data: sibs, error } = await supabaseAdmin.from('purchase_orders').select('*').eq('po', poKey);
+    const { data: sibs, error } = await supabaseAdmin
+      .from('purchase_orders')
+      .select('*')
+      .eq('po', poKey)
+      .eq('company_id', companyId);
     if (error) throw error;
     return (sibs ?? []) as PurchaseOrderDbRow[];
   }
   const pn = String(row.po_number ?? '').trim();
   if (pn) {
-    const { data: sibs, error } = await supabaseAdmin.from('purchase_orders').select('*').eq('po_number', pn);
+    const { data: sibs, error } = await supabaseAdmin
+      .from('purchase_orders')
+      .select('*')
+      .eq('po_number', pn)
+      .eq('company_id', companyId);
     if (error) throw error;
     return (sibs ?? []) as PurchaseOrderDbRow[];
   }
@@ -41,11 +52,15 @@ async function resolvePoGroupRows(anchorId: string): Promise<PurchaseOrderDbRow[
 
 type UserLite = { id: string; name: string | null; email: string | null; role: string | null };
 
-async function loadUsers(ids: string[]): Promise<Map<string, UserLite>> {
+async function loadUsers(ids: string[], companyId: string): Promise<Map<string, UserLite>> {
   const u = [...new Set(ids.filter(Boolean))];
   const map = new Map<string, UserLite>();
   if (u.length === 0) return map;
-  const { data, error } = await supabaseAdmin.from('users').select('id, name, email, role').in('id', u);
+  const { data, error } = await supabaseAdmin
+    .from('users')
+    .select('id, name, email, role')
+    .eq('company_id', companyId)
+    .in('id', u);
   if (error) throw error;
   for (const r of data ?? []) {
     map.set(r.id as string, {
@@ -117,12 +132,20 @@ export async function getLastTransactionForPO(anchorPoLineId: string): Promise<P
 
   const anchor = groupRows[0];
   const po_number = (anchor?.po_number as string | null) ?? (String(anchor?.po ?? '').trim() || null);
+  const companyId = anchor?.company_id as string | undefined;
+  if (!companyId) {
+    return { po_id: anchorPoLineId, po_number, last_transaction: null };
+  }
 
   if (lineIds.length === 0) {
     return { po_id: anchorPoLineId, po_number, last_transaction: null };
   }
 
-  const { data: projects, error: pErr } = await supabaseAdmin.from('projects').select('id').in('po_id', lineIds);
+  const { data: projects, error: pErr } = await supabaseAdmin
+    .from('projects')
+    .select('id')
+    .in('po_id', lineIds)
+    .eq('company_id', companyId);
   if (pErr) throw pErr;
   const projectIds = [...new Set((projects ?? []).map((p) => p.id as string))];
 
@@ -131,6 +154,7 @@ export async function getLastTransactionForPO(anchorPoLineId: string): Promise<P
       ? await supabaseAdmin
           .from('purchase_requests')
           .select('id, created_at, created_by, amount, status, project_id, po_line_id')
+          .eq('company_id', companyId)
           .in('project_id', projectIds)
       : { data: [] as Record<string, unknown>[], error: null };
   if (pr1Err) throw pr1Err;
@@ -138,6 +162,7 @@ export async function getLastTransactionForPO(anchorPoLineId: string): Promise<P
   const { data: prByLine, error: pr2Err } = await supabaseAdmin
     .from('purchase_requests')
     .select('id, created_at, created_by, amount, status, project_id, po_line_id')
+    .eq('company_id', companyId)
     .in('po_line_id', lineIds);
   if (pr2Err) throw pr2Err;
 
@@ -153,6 +178,7 @@ export async function getLastTransactionForPO(anchorPoLineId: string): Promise<P
       ? await supabaseAdmin
           .from('approvals')
           .select('id, request_id, approver_id, role, status, updated_at, updated_by, created_at')
+          .eq('company_id', companyId)
           .in('request_id', prIds)
       : { data: [] as Record<string, unknown>[], error: null };
   if (apErr) throw apErr;
@@ -163,6 +189,7 @@ export async function getLastTransactionForPO(anchorPoLineId: string): Promise<P
       ? await supabaseAdmin
           .from('exceptions')
           .select('id, type, reference_id, status, approved_by, created_at')
+          .eq('company_id', companyId)
           .in('reference_id', refUnion)
       : { data: [] as Record<string, unknown>[], error: null };
   if (exErr) throw exErr;
@@ -176,6 +203,7 @@ export async function getLastTransactionForPO(anchorPoLineId: string): Promise<P
     const { data: prAudits, error: prAudErr } = await supabaseAdmin
       .from('audit_logs')
       .select(auditSelect)
+      .eq('company_id', companyId)
       .eq('entity_type', 'purchase_request')
       .in('entity_id', prIds)
       .eq('action', 'budget_deducted_after_pr_approval');
@@ -187,6 +215,7 @@ export async function getLastTransactionForPO(anchorPoLineId: string): Promise<P
     const { data: exAudits, error: exAudErr } = await supabaseAdmin
       .from('audit_logs')
       .select(auditSelect)
+      .eq('company_id', companyId)
       .in('entity_id', exIds)
       .or('entity_type.eq.exception,entity.eq.exception');
     if (exAudErr) throw exAudErr;
@@ -214,7 +243,7 @@ export async function getLastTransactionForPO(anchorPoLineId: string): Promise<P
     if (log.user_id) userIdSet.add(log.user_id as string);
   }
 
-  const users = await loadUsers([...userIdSet]);
+  const users = await loadUsers([...userIdSet], companyId);
 
   const candidates: Candidate[] = [];
 
