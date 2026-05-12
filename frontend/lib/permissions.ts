@@ -23,7 +23,7 @@ export function hasAppPermission(
   perm: AppPermissionId,
 ): boolean {
   if (!profile) return false;
-  if (profile.role === 'admin') return true;
+  if (profile.role === 'admin' || profile.role === 'platform_admin') return true;
   return (profile.permissions ?? []).includes(perm);
 }
 
@@ -32,7 +32,7 @@ export function hasAnyDashboardPermission(
   profile: { role: string; permissions?: AppPermissionId[] | null } | null | undefined,
 ): boolean {
   if (!profile) return false;
-  if (profile.role === 'admin') return true;
+  if (profile.role === 'admin' || profile.role === 'platform_admin') return true;
   const p = profile.permissions ?? [];
   return APP_PERMISSION_IDS.some((id) => p.includes(id));
 }

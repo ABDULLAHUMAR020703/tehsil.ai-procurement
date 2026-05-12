@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '../../config/supabase';
 import { AppError } from '../../utils/errors';
+import type { TenantAuth } from '../../tenant/tenantScope';
 import { bypassesDepartmentScope, type UserRole } from '../auth/types';
 import { assertActorMayViewProject, fetchProjectForAccess } from '../projects/projectAccess';
 
@@ -11,50 +12,66 @@ export function normalizeAuditEntityTypeParam(raw: string): string {
   throw new AppError(`Unknown entity type: ${raw}`, 400);
 }
 
+function tenantAuthForAudit(params: {
+  actorUserId: string;
+  actorRole: UserRole;
+  companyId: string;
+}): TenantAuth {
+  const { actorUserId, actorRole, companyId } = params;
+  return { userId: actorUserId, role: actorRole, companyId, scopedCompanyId: companyId };
+}
+
 export async function assertActorCanViewEntityAudit(params: {
   actorUserId: string;
   actorRole: string;
   actorDepartment: string | null;
+  companyId: string;
   entityType: string;
   entityId: string;
 }): Promise<void> {
-  const { actorUserId, actorRole, actorDepartment, entityType, entityId } = params;
-  if (bypassesDepartmentScope(actorRole as UserRole)) return;
+  const { actorUserId, actorRole, actorDepartment, companyId, entityType, entityId } = params;
+  const role = actorRole as UserRole;
+  const tenantAuth = tenantAuthForAudit({ actorUserId, actorRole: role, companyId });
 
   if (entityType === 'purchase_request') {
     const { data: pr, error: prErr } = await supabaseAdmin
       .from('purchase_requests')
       .select('id, created_by, project_id')
       .eq('id', entityId)
+      .eq('company_id', companyId)
       .maybeSingle();
     if (prErr) throw prErr;
     if (!pr) throw new AppError('Not found', 404);
+    if (bypassesDepartmentScope(role)) return;
+
     if (pr.created_by === actorUserId) return;
     const { data: appr, error: apErr } = await supabaseAdmin
       .from('approvals')
       .select('id')
       .eq('request_id', entityId)
+      .eq('company_id', companyId)
       .eq('approver_id', actorUserId)
       .limit(1);
     if (apErr) throw apErr;
     if (appr && appr.length > 0) return;
 
-    const project = await fetchProjectForAccess(pr.project_id as string);
+    const project = await fetchProjectForAccess(pr.project_id as string, tenantAuth);
     await assertActorMayViewProject({
       project,
       actorUserId,
-      actorRole: actorRole as UserRole,
+      actorRole: role,
       actorDepartment,
     });
     return;
   }
 
   if (entityType === 'project') {
-    const project = await fetchProjectForAccess(entityId);
+    const project = await fetchProjectForAccess(entityId, tenantAuth);
+    if (bypassesDepartmentScope(role)) return;
     await assertActorMayViewProject({
       project,
       actorUserId,
-      actorRole: actorRole as UserRole,
+      actorRole: role,
       actorDepartment,
     });
     return;
@@ -65,9 +82,12 @@ export async function assertActorCanViewEntityAudit(params: {
       .from('purchase_orders')
       .select('id, department, uploaded_by, po')
       .eq('id', entityId)
+      .eq('company_id', companyId)
       .maybeSingle();
     if (error) throw error;
     if (!po) throw new AppError('Not found', 404);
+    if (bypassesDepartmentScope(role)) return;
+
     if (po.uploaded_by === actorUserId) return;
     const dept = po.department as string | null;
     if (actorDepartment && dept && dept === actorDepartment) return;
@@ -76,6 +96,7 @@ export async function assertActorCanViewEntityAudit(params: {
       .from('projects')
       .select('id, department_id')
       .eq('po_id', entityId)
+      .eq('company_id', companyId)
       .limit(25);
     if (pErr) throw pErr;
     if (byPoId?.some((p) => actorDepartment && p.department_id === actorDepartment)) return;
@@ -85,7 +106,8 @@ export async function assertActorCanViewEntityAudit(params: {
       const { data: lines, error: lErr } = await supabaseAdmin
         .from('purchase_orders')
         .select('department')
-        .eq('po', poText);
+        .eq('po', poText)
+        .eq('company_id', companyId);
       if (lErr) throw lErr;
       if (lines?.some((row) => row.department === actorDepartment)) return;
     }
@@ -98,14 +120,17 @@ export async function assertActorCanViewEntityAudit(params: {
       .from('approvals')
       .select('request_id, approver_id')
       .eq('id', entityId)
+      .eq('company_id', companyId)
       .maybeSingle();
     if (error) throw error;
     if (!row) throw new AppError('Not found', 404);
+    if (bypassesDepartmentScope(role)) return;
     if (row.approver_id === actorUserId) return;
     await assertActorCanViewEntityAudit({
       actorUserId,
       actorRole,
       actorDepartment,
+      companyId,
       entityType: 'purchase_request',
       entityId: row.request_id as string,
     });

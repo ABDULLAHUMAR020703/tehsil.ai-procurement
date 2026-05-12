@@ -21,11 +21,13 @@ export async function fetchActivityFeed(params: {
   actorRole: UserRole;
   actorDepartment: string | null;
   filterDepartment?: string | null;
+  companyId: string;
 }): Promise<ActivityFeedItem[]> {
   const orgWide = bypassesDepartmentScope(params.actorRole);
   let q = supabaseAdmin
     .from('audit_logs')
     .select('id, action, user_id, timestamp, entity_type, entity_id, department_scope')
+    .eq('company_id', params.companyId)
     .order('timestamp', { ascending: false })
     .limit(Math.min(Math.max(params.limit, 1), 200));
 
@@ -43,7 +45,11 @@ export async function fetchActivityFeed(params: {
   const uids = [...new Set(rows.map((r) => r.user_id as string | null).filter(Boolean))] as string[];
   let actorMap = new Map<string, { id: string; name: string | null; email: string | null; role: string | null }>();
   if (uids.length > 0) {
-    const { data: us, error: uErr } = await supabaseAdmin.from('users').select('id, name, email, role').in('id', uids);
+    const { data: us, error: uErr } = await supabaseAdmin
+      .from('users')
+      .select('id, name, email, role')
+      .eq('company_id', params.companyId)
+      .in('id', uids);
     if (uErr) throw uErr;
     actorMap = new Map(
       (us ?? []).map((u) => [

@@ -5,7 +5,12 @@ import { requireAuth } from '../../middleware/auth';
 import { requireRole } from '../../middleware/rbac';
 import { hasPermission, requirePermission } from '../../middleware/permissions';
 import { z } from 'zod';
-import { countPreviousPrsForSameItem, createPurchaseRequest, normalizeItemCode } from './service';
+import {
+  countPreviousPrsForSameItem,
+  createPurchaseRequest,
+  deletePurchaseRequest,
+  normalizeItemCode,
+} from './service';
 import {
   buildPrPoLineSummary,
   enrichPurchaseRequestsWithPoLine,
@@ -16,14 +21,16 @@ import { supabaseAdmin } from '../../config/supabase';
 import { AppError } from '../../utils/errors';
 import { bypassesDepartmentScope } from '../auth/types';
 import { attachLastUpdatedFields } from '../auditLogs/lastUpdated';
+import { companyScopeForRequest } from '../../tenant/requestCompanyId';
 
 export const purchaseRequestsRouter = Router();
 
-async function withPoLineSummaries(rows: Record<string, unknown>[]) {
+async function withPoLineSummaries(rows: Record<string, unknown>[], companyId: string) {
   if (!rows.length) return rows;
   const map = await enrichPurchaseRequestsWithPoLine(
     rows.map((r) => ({
       id: r.id as string,
+      company_id: (r.company_id as string | null) ?? null,
       project_id: r.project_id as string,
       description: r.description as string,
       amount: r.amount as number | string,
@@ -32,6 +39,7 @@ async function withPoLineSummaries(rows: Record<string, unknown>[]) {
       requested_quantity: (r.requested_quantity as number | string | null) ?? null,
       status: r.status as string,
     })),
+    companyId,
   );
   return rows.map((r) => ({ ...r, po_line_summary: map.get(r.id as string) ?? null }));
 }
@@ -108,6 +116,7 @@ purchaseRequestsRouter.post(
         createdBy: req.auth!.userId,
         actorRole: req.auth!.role,
         actorDepartment,
+        companyId: companyScopeForRequest(req),
       });
 
       res.status(201).json({ ok: true, ...result });
@@ -124,19 +133,21 @@ purchaseRequestsRouter.get(
     try {
       const userId = req.auth!.userId;
       const role = req.auth!.role;
+      const cid = companyScopeForRequest(req);
 
       const select =
-        'id, project_id, description, amount, document_url, item_code, duplicate_count, po_line_id, requested_quantity, budget_deducted, status, created_by, created_at, updated_at, updated_by';
+        'id, company_id, project_id, description, amount, document_url, item_code, duplicate_count, po_line_id, requested_quantity, budget_deducted, status, created_by, created_at, updated_at, updated_by';
 
       if (bypassesDepartmentScope(role)) {
         const { data, error } = await supabaseAdmin
           .from('purchase_requests')
           .select(select)
+          .eq('company_id', cid)
           .order('created_at', { ascending: false })
           .limit(100);
         if (error) throw error;
-        const withAudit = await attachLastUpdatedFields('purchase_request', data ?? []);
-        const enriched = await withPoLineSummaries(withAudit as Record<string, unknown>[]);
+        const withAudit = await attachLastUpdatedFields('purchase_request', data ?? [], cid);
+        const enriched = await withPoLineSummaries(withAudit as Record<string, unknown>[], cid);
         const visible = enriched.map((row) => redactPrListRow(req, row as Record<string, unknown>));
         return res.json({ purchaseRequests: visible });
       }
@@ -144,19 +155,21 @@ purchaseRequestsRouter.get(
       const { data: created, error: createdErr } = await supabaseAdmin
         .from('purchase_requests')
         .select(select)
+        .eq('company_id', cid)
         .eq('created_by', userId);
       if (createdErr) throw createdErr;
 
       const { data: approvalReqIds, error: approvalsErr } = await supabaseAdmin
         .from('approvals')
         .select('request_id')
+        .eq('company_id', cid)
         .eq('approver_id', userId)
         .eq('status', 'pending');
       if (approvalsErr) throw approvalsErr;
 
       const ids = (approvalReqIds ?? []).map((r) => r.request_id as string);
       const { data: pendingApprovals, error: pendingErr } = ids.length
-        ? await supabaseAdmin.from('purchase_requests').select(select).in('id', ids)
+        ? await supabaseAdmin.from('purchase_requests').select(select).eq('company_id', cid).in('id', ids)
         : { data: [] as unknown[], error: null as unknown as any };
       if (pendingErr) throw pendingErr;
 
@@ -165,11 +178,13 @@ purchaseRequestsRouter.get(
         const visible = await loadEmployeeVisibleProjectIds({
           userId,
           department: req.auth!.department,
+          companyId: cid,
         });
         if (visible.length > 0) {
           const { data: prProj, error: prProjErr } = await supabaseAdmin
             .from('purchase_requests')
             .select(select)
+            .eq('company_id', cid)
             .in('project_id', visible)
             .order('created_at', { ascending: false })
             .limit(100);
@@ -184,8 +199,8 @@ purchaseRequestsRouter.get(
       for (const pr of byProject as any[]) map.set(pr.id as string, pr);
 
       const merged = [...map.values()].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 100);
-      const withAudit = await attachLastUpdatedFields('purchase_request', merged);
-      const enriched = await withPoLineSummaries(withAudit as Record<string, unknown>[]);
+      const withAudit = await attachLastUpdatedFields('purchase_request', merged, cid);
+      const enriched = await withPoLineSummaries(withAudit as Record<string, unknown>[], cid);
       const visible = enriched.map((row) => redactPrListRow(req, row as Record<string, unknown>));
       res.json({ purchaseRequests: visible });
     } catch (err) {
@@ -209,8 +224,29 @@ purchaseRequestsRouter.get(
       if (!norm) {
         return res.json({ previousCount: 0 });
       }
-      const previousCount = await countPreviousPrsForSameItem(req.auth!.userId, norm);
+      const previousCount = await countPreviousPrsForSameItem(req.auth!.userId, norm, companyScopeForRequest(req));
       res.json({ previousCount });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+purchaseRequestsRouter.delete(
+  '/:id',
+  requireRole('admin', 'pm', 'dept_head'),
+  async (req, res, next) => {
+    try {
+      const requestId = req.params.id as string;
+      if (!requestId) throw new AppError('Missing purchase request id', 400);
+      await deletePurchaseRequest({
+        requestId,
+        actorUserId: req.auth!.userId,
+        actorRole: req.auth!.role,
+        actorDepartment: req.auth!.department ?? null,
+        companyId: companyScopeForRequest(req),
+      });
+      res.status(204).end();
     } catch (err) {
       next(err);
     }
@@ -224,13 +260,15 @@ purchaseRequestsRouter.get(
     try {
       const requestId = req.params.id as string;
       if (!requestId) throw new AppError('Missing purchase request id', 400);
+      const cid = companyScopeForRequest(req);
 
       const { data: pr, error: prErr } = await supabaseAdmin
         .from('purchase_requests')
         .select(
-          'id, project_id, description, amount, document_url, item_code, duplicate_count, po_line_id, requested_quantity, budget_deducted, status, created_by, created_at, updated_at, updated_by',
+          'id, company_id, project_id, description, amount, document_url, item_code, duplicate_count, po_line_id, requested_quantity, budget_deducted, status, created_by, created_at, updated_at, updated_by',
         )
         .eq('id', requestId)
+        .eq('company_id', cid)
         .maybeSingle();
 
       if (prErr) throw new AppError('Failed to fetch purchase request', 500);
@@ -240,9 +278,19 @@ purchaseRequestsRouter.get(
 
       // Fetch related rows safely (missing joins should not crash).
       const [creatorRes, updaterRes, projectRes, approvalsRes] = await Promise.all([
-        supabaseAdmin.from('users').select('id, name, email, role, department').eq('id', pr.created_by).maybeSingle(),
+        supabaseAdmin
+          .from('users')
+          .select('id, name, email, role, department')
+          .eq('id', pr.created_by)
+          .eq('company_id', cid)
+          .maybeSingle(),
         prUpdatedBy
-          ? supabaseAdmin.from('users').select('id, name, email, role, department').eq('id', prUpdatedBy).maybeSingle()
+          ? supabaseAdmin
+              .from('users')
+              .select('id, name, email, role, department')
+              .eq('id', prUpdatedBy)
+              .eq('company_id', cid)
+              .maybeSingle()
           : Promise.resolve({ data: null, error: null }),
         pr.project_id
           ? supabaseAdmin
@@ -251,6 +299,7 @@ purchaseRequestsRouter.get(
                 'id, name, po_id, budget, status, is_exception, created_by, created_at, department_id, team_lead_id, updated_at, updated_by',
               )
               .eq('id', pr.project_id)
+              .eq('company_id', cid)
               .maybeSingle()
           : Promise.resolve({ data: null, error: null }),
         supabaseAdmin
@@ -259,6 +308,7 @@ purchaseRequestsRouter.get(
             'id, request_id, approver_id, role, status, comments, created_at, updated_at, updated_by, is_admin_override',
           )
           .eq('request_id', pr.id)
+          .eq('company_id', cid)
           .order('created_at', { ascending: true }),
       ]);
 
@@ -285,6 +335,7 @@ purchaseRequestsRouter.get(
           .from('purchase_orders')
           .select('id, po_number, vendor, total_value, remaining_value, updated_at, updated_by')
           .eq('id', poId)
+          .eq('company_id', cid)
           .maybeSingle();
         // If PO missing, keep null.
         if (error) po = null;
@@ -299,6 +350,7 @@ purchaseRequestsRouter.get(
         const { data: tu, error: tuErr } = await supabaseAdmin
           .from('users')
           .select('id, name, email, role')
+          .eq('company_id', cid)
           .in('id', touchIds);
         if (tuErr) throw tuErr;
         touchMap = new Map((tu ?? []).map((u) => [u.id as string, u as { id: string; name: string; email: string; role: string }]));
@@ -306,7 +358,7 @@ purchaseRequestsRouter.get(
 
       let projectPayload: Record<string, unknown> | null = null;
       if (project) {
-        const [projAudit] = await attachLastUpdatedFields('project', [project]);
+        const [projAudit] = await attachLastUpdatedFields('project', [project], cid);
         projectPayload = {
           ...project,
           updatedBy: projUpId ? touchMap.get(projUpId) ?? null : null,
@@ -317,7 +369,7 @@ purchaseRequestsRouter.get(
 
       let poPayload: Record<string, unknown> | null = null;
       if (po) {
-        const [poAudit] = await attachLastUpdatedFields('purchase_order', [po]);
+        const [poAudit] = await attachLastUpdatedFields('purchase_order', [po], cid);
         poPayload = {
           ...po,
           updatedBy: poUpId ? touchMap.get(poUpId) ?? null : null,
@@ -331,6 +383,7 @@ purchaseRequestsRouter.get(
       const { data: exceptions, error: exErr } = await supabaseAdmin
         .from('exceptions')
         .select('id, type, reference_id, status, approved_by, created_at')
+        .eq('company_id', cid)
         .in('reference_id', referenceIds)
         .order('created_at', { ascending: true });
       if (exErr) {
@@ -344,6 +397,7 @@ purchaseRequestsRouter.get(
       const { data: auditForPr, error: auditPrErr } = await supabaseAdmin
         .from('audit_logs')
         .select(auditSelect)
+        .eq('company_id', cid)
         .eq('entity_id', pr.id)
         .order('timestamp', { ascending: false })
         .limit(200);
@@ -357,6 +411,7 @@ purchaseRequestsRouter.get(
         const { data: auditTmp, error: auditProjectErr } = await supabaseAdmin
           .from('audit_logs')
           .select(auditSelect)
+          .eq('company_id', cid)
           .eq('entity_id', project.id)
           .eq('entity_type', 'project')
           .order('timestamp', { ascending: false })
@@ -373,11 +428,15 @@ purchaseRequestsRouter.get(
         (a, b) => String(b.timestamp).localeCompare(String(a.timestamp)),
       );
 
-      const approvalsWithAudit = await attachLastUpdatedFields('approval', approvals ?? []);
+      const approvalsWithAudit = await attachLastUpdatedFields('approval', approvals ?? [], cid);
 
       const approverIds = [...new Set((approvalsWithAudit ?? []).map((a) => a.approver_id as string))];
       const { data: approverProfiles, error: approverErr } = approverIds.length
-        ? await supabaseAdmin.from('users').select('id, name, email, role').in('id', approverIds)
+        ? await supabaseAdmin
+            .from('users')
+            .select('id, name, email, role')
+            .eq('company_id', cid)
+            .in('id', approverIds)
         : { data: [], error: null };
       if (approverErr) throw approverErr;
 
@@ -392,13 +451,14 @@ purchaseRequestsRouter.get(
           (a) => a.status === 'pending' && (a.role === 'team_lead' || a.role === 'pm'),
         )?.role ?? null;
 
-      const [prAudit] = await attachLastUpdatedFields('purchase_request', [pr]);
+      const [prAudit] = await attachLastUpdatedFields('purchase_request', [pr], cid);
 
-      const anchors = pr.project_id ? await loadAnchorsForProjectIds([pr.project_id as string]) : new Map();
+      const anchors = pr.project_id ? await loadAnchorsForProjectIds([pr.project_id as string], cid) : new Map();
       const anchor = pr.project_id ? anchors.get(pr.project_id as string) ?? null : null;
       const poLineSummary = await buildPrPoLineSummary(
         {
           id: pr.id as string,
+          company_id: (pr as { company_id: string }).company_id,
           description: pr.description as string,
           amount: pr.amount as number,
           item_code: ((pr as { item_code?: string | null }).item_code ?? null) as string | null,

@@ -1,13 +1,17 @@
-export type UserRole = 'admin' | 'pm' | 'dept_head' | 'employee';
+export type UserRole = 'admin' | 'pm' | 'dept_head' | 'employee' | 'platform_admin';
+
+export function isPlatformAdminRole(role: UserRole | string): boolean {
+  return String(role ?? '').trim().toLowerCase() === 'platform_admin';
+}
 
 /** PM or department head — same department-scoped project and PO privileges. */
 export function isDeptManagerRole(role: UserRole): boolean {
   return role === 'pm' || role === 'dept_head';
 }
 
-/** Admins are not limited to one department for reads, list filters, or scope checks. */
+/** Admins and platform admins are not limited to one department for reads, list filters, or scope checks. */
 export function bypassesDepartmentScope(role: UserRole): boolean {
-  return role === 'admin';
+  return role === 'admin' || isPlatformAdminRole(role);
 }
 
 /** Departments; admin users use `management` only. */

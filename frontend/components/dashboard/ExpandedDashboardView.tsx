@@ -24,13 +24,13 @@ function DrillSkeleton() {
       {[0, 1, 2, 3, 4, 5].map((i) => (
         <div
           key={i}
-          className="rounded-xl border border-white/10 bg-[#1a1730]/50 p-4 h-40 animate-pulse"
+          className="rounded-xl border border-stone-200 dark:border-stone-600 bg-stone-100 dark:bg-stone-800/60 p-4 h-40 animate-pulse"
         >
-          <div className="h-4 w-1/2 rounded bg-white/10 mb-3" />
-          <div className="h-3 w-1/3 rounded bg-white/5 mb-4" />
+          <div className="h-4 w-1/2 rounded bg-stone-200 dark:bg-stone-600 mb-3" />
+          <div className="h-3 w-1/3 rounded bg-stone-200/80 dark:bg-stone-700 mb-4" />
           <div className="space-y-2">
-            <div className="h-3 w-full rounded bg-white/5" />
-            <div className="h-3 w-4/5 rounded bg-white/5" />
+            <div className="h-3 w-full rounded bg-stone-200/80 dark:bg-stone-700" />
+            <div className="h-3 w-4/5 rounded bg-stone-200/80 dark:bg-stone-700" />
           </div>
         </div>
       ))}
@@ -78,7 +78,7 @@ export function ExpandedDashboardView({ active, onBack, supabase, onAuthError }:
       transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
       className="space-y-4"
     >
-      <Card className="p-4 border border-purple-500/20 bg-[#121124]/90">
+      <Card className="p-4 border-orange-200/90 dark:border-orange-800/45 bg-gradient-to-r from-[var(--surface)] to-orange-50/50 dark:from-stone-900 dark:to-orange-950/20 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex items-center gap-3">
             <Button type="button" variant="secondary" className="shrink-0 gap-2" onClick={onBack}>
@@ -86,7 +86,7 @@ export function ExpandedDashboardView({ active, onBack, supabase, onAuthError }:
               Back
             </Button>
             <div>
-              <h2 className="text-lg font-semibold text-foreground">{TITLES[active]}</h2>
+              <h2 className="text-lg font-semibold text-stone-900 dark:text-stone-50">{TITLES[active]}</h2>
               <p className="text-xs text-muted-foreground mt-0.5">Department-level breakdown</p>
             </div>
           </div>
@@ -94,7 +94,7 @@ export function ExpandedDashboardView({ active, onBack, supabase, onAuthError }:
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             placeholder="Filter departments…"
-            className="rounded-lg border border-white/10 bg-[#2a2640] px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-purple-500/70 w-full sm:max-w-xs"
+            className="rounded-lg border border-stone-200 dark:border-stone-600 bg-[var(--surface)] dark:bg-stone-900 px-3 py-2 text-sm text-stone-900 dark:text-stone-100 outline-none focus:ring-2 focus:ring-orange-500/25 dark:focus:ring-orange-400/25 focus:border-orange-400 dark:focus:border-orange-500 w-full sm:max-w-xs shadow-sm"
           />
         </div>
       </Card>
@@ -106,13 +106,13 @@ export function ExpandedDashboardView({ active, onBack, supabase, onAuthError }:
           </motion.div>
         ) : error ? (
           <motion.div key="err" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-            <Card className="p-4 text-sm text-rose-300 border-rose-500/30">
+            <Card className="p-4 text-sm text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800/70 bg-rose-50 dark:bg-rose-950/35">
               {error instanceof Error ? error.message : 'Failed to load department data'}
             </Card>
           </motion.div>
         ) : filtered.length === 0 ? (
           <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-            <Card className="p-6 text-center text-sm text-muted-foreground border border-white/10">
+            <Card className="p-6 text-center text-sm text-muted-foreground border-stone-200 dark:border-stone-600">
               No departments match your filter, or you have no access to department data.
             </Card>
           </motion.div>

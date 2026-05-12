@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { requireAuth } from '../../middleware/auth';
 import { requireRole } from '../../middleware/rbac';
 import { supabaseAdmin } from '../../config/supabase';
+import { companyScopeForRequest } from '../../tenant/requestCompanyId';
 import { assertActorCanViewEntityAudit, normalizeAuditEntityTypeParam } from './access';
 
 export const auditLogsRouter = Router();
@@ -18,10 +19,12 @@ auditLogsRouter.get('/:entityType/:entityId', async (req, res, next) => {
     const entityType = normalizeAuditEntityTypeParam(req.params.entityType ?? '');
     const entityId = z.string().uuid().parse(req.params.entityId);
 
+    const cid = companyScopeForRequest(req);
     await assertActorCanViewEntityAudit({
       actorUserId: req.auth!.userId,
       actorRole: req.auth!.role,
       actorDepartment: req.auth!.department ?? null,
+      companyId: cid,
       entityType,
       entityId,
     });
@@ -31,6 +34,7 @@ auditLogsRouter.get('/:entityType/:entityId', async (req, res, next) => {
       .select('id, action, user_id, entity, entity_type, entity_id, reason, changes, timestamp')
       .eq('entity_id', entityId)
       .eq('entity_type', entityType)
+      .eq('company_id', cid)
       .order('timestamp', { ascending: false })
       .limit(300);
     if (error) throw error;
@@ -42,6 +46,7 @@ auditLogsRouter.get('/:entityType/:entityId', async (req, res, next) => {
       const { data: users, error: uErr } = await supabaseAdmin
         .from('users')
         .select('id, name, email, role')
+        .eq('company_id', cid)
         .in('id', userIds);
       if (uErr) throw uErr;
       userMap = new Map((users ?? []).map((u) => [u.id as string, u as { id: string; name: string; email: string; role: string }]));
@@ -73,10 +78,12 @@ auditLogsRouter.get('/:entityType/:entityId', async (req, res, next) => {
 
 auditLogsRouter.get('/', requireRole('admin'), async (req, res, next) => {
   try {
+    const cid = companyScopeForRequest(req);
     const { action, entity } = req.query;
     let q = supabaseAdmin
       .from('audit_logs')
       .select('id, action, user_id, entity, entity_type, entity_id, reason, changes, timestamp')
+      .eq('company_id', cid)
       .order('timestamp', { ascending: false });
     if (typeof action === 'string') q = q.eq('action', action);
     if (typeof entity === 'string') q = q.eq('entity', entity);

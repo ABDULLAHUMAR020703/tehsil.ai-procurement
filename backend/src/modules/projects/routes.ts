@@ -19,6 +19,8 @@ import { budgetPairFromRow, type PurchaseOrderDbRow } from '../po/groupByPo';
 import { attachLastUpdatedFields } from '../auditLogs/lastUpdated';
 import { bypassesDepartmentScope, isDeptManagerRole } from '../auth/types';
 import { hasPermission, requirePermission } from '../../middleware/permissions';
+import { companyScopeForRequest } from '../../tenant/requestCompanyId';
+import type { TenantAuth } from '../../tenant/tenantScope';
 
 export const projectsRouter = Router();
 
@@ -55,6 +57,7 @@ projectsRouter.post('/', requirePermission('view_budget'), requireRole('admin', 
       createdBy: actorUserId,
       actorRole,
       actorDepartment,
+      companyId: companyScopeForRequest(req),
       departmentId: parsed.department_id,
       pmId: parsed.pm_id,
       teamLeadId: parsed.team_lead_id,
@@ -72,19 +75,21 @@ projectsRouter.get('/', requireRole('admin', 'pm', 'dept_head', 'employee'), asy
     const role = req.auth!.role;
     const dept = req.auth!.department ?? null;
     const userId = req.auth!.userId;
+    const cid = companyScopeForRequest(req);
 
     let q = supabaseAdmin
       .from('projects')
       .select(
         'id, name, po_id, budget, status, is_exception, created_by, created_at, department_id, team_lead_id, pm_id, updated_at, updated_by',
       )
+      .eq('company_id', cid)
       .neq('status', 'archived')
       .order('created_at', { ascending: false })
       .limit(100);
 
     if (role === 'employee') {
       if (!dept) throw new AppError('User profile must include a department', 400);
-      const visible = await loadEmployeeVisibleProjectIds({ userId, department: dept });
+      const visible = await loadEmployeeVisibleProjectIds({ userId, department: dept, companyId: cid });
       if (visible.length === 0) return res.json({ projects: [] });
       q = q.in('id', visible);
     } else if (!bypassesDepartmentScope(role) && isDeptManagerRole(role)) {
@@ -102,6 +107,7 @@ projectsRouter.get('/', requireRole('admin', 'pm', 'dept_head', 'employee'), asy
       const { data: users, error: uErr } = await supabaseAdmin
         .from('users')
         .select('id, name, email, role')
+        .eq('company_id', cid)
         .in('id', userIds);
       if (uErr) throw uErr;
       userMap = new Map((users ?? []).map((u) => [u.id as string, u as { id: string; name: string | null; email: string | null; role: string }]));
@@ -113,6 +119,7 @@ projectsRouter.get('/', requireRole('admin', 'pm', 'dept_head', 'employee'), asy
       const { data: anchors, error: anchorErr } = await supabaseAdmin
         .from('purchase_orders')
         .select('id, po, po_amount, remaining_amount, total_value, remaining_value')
+        .eq('company_id', cid)
         .in('id', poIds);
       if (anchorErr) throw anchorErr;
 
@@ -127,6 +134,7 @@ projectsRouter.get('/', requireRole('admin', 'pm', 'dept_head', 'employee'), asy
         const { data: siblings, error: sibErr } = await supabaseAdmin
           .from('purchase_orders')
           .select('po, po_amount, remaining_amount, total_value, remaining_value')
+          .eq('company_id', cid)
           .in('po', [...poTexts]);
         if (sibErr) throw sibErr;
         for (const r of siblings ?? []) {
@@ -160,12 +168,13 @@ projectsRouter.get('/', requireRole('admin', 'pm', 'dept_head', 'employee'), asy
       const { data: deptRows, error: dErr } = await supabaseAdmin
         .from('departments')
         .select('code, display_name')
+        .eq('company_id', cid)
         .in('code', deptCodes);
       if (dErr) throw dErr;
       deptLabelMap = new Map((deptRows ?? []).map((r) => [r.code as string, r.display_name as string]));
     }
 
-    const withAudit = await attachLastUpdatedFields('project', list);
+    const withAudit = await attachLastUpdatedFields('project', list, cid);
     const enriched = withAudit.map((p) => {
       const did = p.department_id as string;
       return {
@@ -204,7 +213,7 @@ projectsRouter.get('/:id', requireRole('admin', 'pm', 'dept_head', 'employee'), 
     const dept = req.auth!.department ?? null;
     const actorUserId = req.auth!.userId;
 
-    const projectAccess = await fetchProjectForAccess(id);
+    const projectAccess = await fetchProjectForAccess(id, req.auth as TenantAuth);
     await assertActorMayViewProject({
       project: projectAccess,
       actorUserId,
@@ -215,9 +224,10 @@ projectsRouter.get('/:id', requireRole('admin', 'pm', 'dept_head', 'employee'), 
     const { data: project, error } = await supabaseAdmin
       .from('projects')
       .select(
-        'id, name, po_id, budget, status, is_exception, created_by, created_at, department_id, team_lead_id, pm_id, updated_at, updated_by',
+        'id, name, po_id, budget, status, is_exception, created_by, created_at, department_id, team_lead_id, pm_id, updated_at, updated_by, company_id',
       )
       .eq('id', id)
+      .eq('company_id', projectAccess.company_id)
       .maybeSingle();
     if (error) throw error;
     if (!project) throw new AppError('Project not found', 404);
@@ -225,12 +235,14 @@ projectsRouter.get('/:id', requireRole('admin', 'pm', 'dept_head', 'employee'), 
     const { data: deptRow } = await supabaseAdmin
       .from('departments')
       .select('code, display_name')
+      .eq('company_id', projectAccess.company_id)
       .eq('code', project.department_id as string)
       .maybeSingle();
 
     const { data: assignRows } = await supabaseAdmin
       .from('project_assignments')
       .select('employee_id')
+      .eq('company_id', projectAccess.company_id)
       .eq('project_id', id);
     const assignIds = [...new Set((assignRows ?? []).map((r) => r.employee_id as string))];
 
@@ -242,6 +254,7 @@ projectsRouter.get('/:id', requireRole('admin', 'pm', 'dept_head', 'employee'), 
     const { data: profiles } = await supabaseAdmin
       .from('users')
       .select('id, name, email, role, job_title')
+      .eq('company_id', projectAccess.company_id)
       .in('id', [...new Set(profileIds)]);
 
     const profileMap = new Map(
@@ -253,24 +266,35 @@ projectsRouter.get('/:id', requireRole('admin', 'pm', 'dept_head', 'employee'), 
 
     const ub = project.updated_by as string | null;
     const { data: updater } = ub
-      ? await supabaseAdmin.from('users').select('id, name, email, role').eq('id', ub).maybeSingle()
+      ? await supabaseAdmin
+          .from('users')
+          .select('id, name, email, role')
+          .eq('company_id', projectAccess.company_id)
+          .eq('id', ub)
+          .maybeSingle()
       : { data: null };
 
-    const [projectAudit] = await attachLastUpdatedFields('project', [project]);
+    const [projectAudit] = await attachLastUpdatedFields('project', [project], projectAccess.company_id as string);
 
     let purchaseOrder: Record<string, unknown> | null = null;
     if (project.po_id) {
       const { data: po } = await supabaseAdmin
         .from('purchase_orders')
         .select('id, po_number, vendor, po, total_value, remaining_value, updated_at, updated_by')
+        .eq('company_id', projectAccess.company_id)
         .eq('id', project.po_id)
         .maybeSingle();
       if (po) {
         const pob = (po as { updated_by?: string | null }).updated_by;
         const { data: poUpdater } = pob
-          ? await supabaseAdmin.from('users').select('id, name, email, role').eq('id', pob).maybeSingle()
+          ? await supabaseAdmin
+              .from('users')
+              .select('id, name, email, role')
+              .eq('company_id', projectAccess.company_id)
+              .eq('id', pob)
+              .maybeSingle()
           : { data: null };
-        const [poAudit] = await attachLastUpdatedFields('purchase_order', [po]);
+        const [poAudit] = await attachLastUpdatedFields('purchase_order', [po], projectAccess.company_id as string);
         purchaseOrder = {
           ...po,
           updatedBy: poUpdater ?? null,
@@ -304,6 +328,7 @@ projectsRouter.get('/:id', requireRole('admin', 'pm', 'dept_head', 'employee'), 
       const { data: prRows, error: prErr } = await supabaseAdmin
         .from('purchase_requests')
         .select('id, description, amount, status, created_at')
+        .eq('company_id', projectAccess.company_id)
         .eq('project_id', id)
         .order('created_at', { ascending: false })
         .limit(50);
@@ -362,6 +387,7 @@ projectsRouter.patch(
         actorUserId: req.auth!.userId,
         actorRole: req.auth!.role,
         actorDepartment: req.auth!.department ?? null,
+        tenantAuth: req.auth as TenantAuth,
       });
       res.json(result);
     } catch (err) {
@@ -383,6 +409,7 @@ projectsRouter.patch('/:id/members', requireRole('admin', 'pm', 'dept_head'), as
       actorUserId: req.auth!.userId,
       actorRole: req.auth!.role,
       actorDepartment: req.auth!.department ?? null,
+      tenantAuth: req.auth as TenantAuth,
     });
     res.json(result);
   } catch (err) {
@@ -398,6 +425,7 @@ projectsRouter.delete('/:id', requireRole('admin', 'pm', 'dept_head'), async (re
       actorUserId: req.auth!.userId,
       actorRole: req.auth!.role,
       actorDepartment: req.auth!.department ?? null,
+      tenantAuth: req.auth as TenantAuth,
     });
     res.json(result);
   } catch (err) {

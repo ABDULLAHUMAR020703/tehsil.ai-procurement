@@ -31,6 +31,14 @@ export function PrintDocumentStyles() {
               background: white !important;
               padding: 0 !important;
             }
+            .print-bundle-page {
+              break-after: page;
+              page-break-after: always;
+            }
+            .print-bundle-page-last {
+              break-after: auto !important;
+              page-break-after: auto !important;
+            }
           }
         `,
       }}

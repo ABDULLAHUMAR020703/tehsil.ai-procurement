@@ -5,15 +5,17 @@ import { requireRole } from '../../middleware/rbac';
 import { AppError } from '../../utils/errors';
 import { isAppPermission } from './types';
 import { listUsersWithPermissions, replaceUserPermissions } from './service';
+import { companyScopeForRequest } from '../../tenant/requestCompanyId';
 
 export const permissionsRouter = Router();
 
 permissionsRouter.use(requireAuth);
-permissionsRouter.use(requireRole('admin'));
+permissionsRouter.use(requireRole('admin', 'platform_admin'));
 
-permissionsRouter.get('/', async (_req, res, next) => {
+permissionsRouter.get('/', async (req, res, next) => {
   try {
-    const users = await listUsersWithPermissions();
+    const cid = companyScopeForRequest(req);
+    const users = await listUsersWithPermissions(cid);
     res.json({ users });
   } catch (err) {
     next(err);
@@ -23,6 +25,7 @@ permissionsRouter.get('/', async (_req, res, next) => {
 permissionsRouter.patch('/:userId', async (req, res, next) => {
   try {
     const userId = z.string().uuid().parse(req.params.userId);
+    const cid = companyScopeForRequest(req);
     const Body = z.object({
       permissions: z.array(z.string()),
     });
@@ -36,6 +39,7 @@ permissionsRouter.patch('/:userId', async (req, res, next) => {
       actorRole: req.auth!.role,
       targetUserId: userId,
       permissions,
+      companyId: cid,
     });
 
     res.json(result);

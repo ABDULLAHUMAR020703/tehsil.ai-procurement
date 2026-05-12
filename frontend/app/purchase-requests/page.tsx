@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
@@ -11,8 +10,6 @@ import { Input } from '../../components/ui/Input';
 import { PageContainer } from '../../components/ui/PageContainer';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { PoLineTypeahead, type PoSearchLine } from '../../components/PoLineTypeahead';
-import { PrPoLineMetricsCells, type PoLineSummary } from '../../components/PrPoLineMetricsCells';
-import { Table, TBody, TD, TH, THead, TR, TableWrapper } from '../../components/ui/Table';
 import { useAuth } from '../../features/auth/AuthProvider';
 import {
   ApiError,
@@ -21,8 +18,6 @@ import {
   getAccessTokenFromSupabaseSession,
   NoSessionError,
 } from '../../lib/api';
-import { sortApprovalStageIndex } from '../../lib/org';
-import { LastUpdatedMeta } from '../../components/LastUpdatedPanel';
 
 type ProjectPurchaseOrderSnapshot = { total_value: number; remaining_value: number };
 type Project = {
@@ -34,24 +29,6 @@ type Project = {
   budget: number;
   purchase_order?: ProjectPurchaseOrderSnapshot | ProjectPurchaseOrderSnapshot[] | null;
 };
-type PurchaseRequest = {
-  id: string;
-  project_id: string;
-  description: string;
-  amount: number;
-  document_url: string | null;
-  item_code?: string | null;
-  duplicate_count?: number | null;
-  po_line_id?: string | null;
-  requested_quantity?: number | null;
-  po_line_summary?: PoLineSummary | null;
-  status: string;
-  created_at: string;
-  created_by: string;
-  last_updated_at?: string | null;
-  last_updated_by?: { id: string; name: string | null; email: string | null; role: string | null } | null;
-};
-
 function ordinalTimeWord(occurrence: number): string {
   const specials: Record<number, string> = {
     2: 'second',
@@ -116,13 +93,7 @@ export default function PurchaseRequestsPage() {
   const [requestedQty, setRequestedQty] = useState<string>('');
   const [duplicateModalOpen, setDuplicateModalOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [overrideTarget, setOverrideTarget] = useState<string | null>(null);
-  const [overrideDecision, setOverrideDecision] = useState<'approved' | 'rejected'>('approved');
-  const [overrideReason, setOverrideReason] = useState('');
   const [submitAttempted, setSubmitAttempted] = useState(false);
-  const isAdmin = profile?.role === 'admin';
-  const canDownloadPdf = profile?.role === 'admin' || profile?.role === 'pm';
-
   const { data: projectsData } = useQuery({
     queryKey: ['projects', 'for-pr'],
     enabled: !!token && !!supabase,
@@ -135,53 +106,6 @@ export default function PurchaseRequestsPage() {
       }
     },
   });
-
-  const { data: prData, isLoading: prLoading, isFetching: prFetching } = useQuery({
-    queryKey: ['purchase-requests', 'list'],
-    enabled: !!token && !!supabase,
-    queryFn: async () => {
-      try {
-        return await authedFetchWithSupabase<{ purchaseRequests: PurchaseRequest[] }>(
-          supabase,
-          '/api/purchase-requests',
-        );
-      } catch (e) {
-        if (e instanceof NoSessionError) router.replace('/login');
-        throw e;
-      }
-    },
-  });
-
-  const prListIds = useMemo(() => (prData?.purchaseRequests ?? []).map((p) => p.id), [prData]);
-
-  const { data: prApprovalsForAdmin } = useQuery({
-    queryKey: ['approvals', 'admin-pr-force-map', prListIds.join(',')],
-    enabled: isAdmin && !!supabase && prListIds.length > 0,
-    queryFn: async () => {
-      const { data, error } = await supabase!
-        .from('approvals')
-        .select('id, request_id, role, status')
-        .in('request_id', prListIds);
-      if (error) throw error;
-      return (data ?? []) as { id: string; request_id: string; role: string; status: string }[];
-    },
-  });
-
-  const firstPendingRequiredByPr = useMemo(() => {
-    const map = new Map<string, string>();
-    const rows = prApprovalsForAdmin ?? [];
-    for (const prId of prListIds) {
-      const pending = rows.filter(
-        (r) =>
-          r.request_id === prId &&
-          r.status === 'pending' &&
-          (r.role === 'team_lead' || r.role === 'pm'),
-      );
-      pending.sort((a, b) => sortApprovalStageIndex(a.role) - sortApprovalStageIndex(b.role));
-      if (pending[0]) map.set(prId, pending[0].id);
-    }
-    return map;
-  }, [prApprovalsForAdmin, prListIds]);
 
   const projects = useMemo(() => (projectsData?.projects ?? []) as Project[], [projectsData]);
   const selectedProject = useMemo(() => projects.find((p) => p.id === projectId), [projects, projectId]);
@@ -343,67 +267,13 @@ export default function PurchaseRequestsPage() {
     onError: (e: unknown) => setError(e instanceof Error ? e.message : 'PR creation failed'),
   });
 
-  const overrideMutation = useMutation({
-    mutationFn: async (params: { requestId: string; decision: 'approved' | 'rejected'; reason: string }) => {
-      try {
-        return await authedFetchWithSupabase<unknown>(supabase, '/api/approvals/override', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(params),
-        });
-      } catch (e) {
-        if (e instanceof NoSessionError) router.replace('/login');
-        throw e;
-      }
-    },
-    onSuccess: () => {
-      setOverrideTarget(null);
-      setOverrideReason('');
-      setOverrideDecision('approved');
-      queryClient.invalidateQueries({ queryKey: ['purchase-requests'] });
-      queryClient.invalidateQueries({ queryKey: ['approvals'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
-    },
-    onError: (e: unknown) => setError(e instanceof Error ? e.message : 'Override failed'),
-  });
-
-  const forceApproveFromListMutation = useMutation({
-    mutationFn: async (approvalId: string) => {
-      try {
-        return await authedFetchWithSupabase<unknown>(
-          supabase,
-          '/api/approvals/' + approvalId + '/decision',
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ decision: 'approved' }),
-          },
-        );
-      } catch (e) {
-        if (e instanceof NoSessionError) router.replace('/login');
-        throw e;
-      }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['purchase-requests'] });
-      queryClient.invalidateQueries({ queryKey: ['approvals'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
-    },
-    onError: (e: unknown) => setError(e instanceof Error ? e.message : 'Force approve failed'),
-  });
-
   return (
     <AppLayout>
       <PageContainer className="space-y-6">
-        <PageHeader title="Purchase Requests" subtitle="Submit and track procurement requests." />
-
-        {prFetching && !prLoading ? (
-          <div className="rounded-lg border border-purple-500/30 bg-purple-600/10 px-4 py-2 text-sm text-purple-200">
-            Fetching latest data...
-          </div>
-        ) : null}
+        <PageHeader
+          title="Purchase Requests"
+          subtitle="Submit new PRs here. Browse all PRs, PDFs, and date filters on Reports."
+        />
 
         <Card className="p-6">
           <h2 className="text-lg font-medium">Create PR</h2>
@@ -444,7 +314,7 @@ export default function PurchaseRequestsPage() {
             <div className="md:col-span-2 space-y-2">
               <label className="block text-sm font-medium">Project</label>
               <select
-                className="w-full rounded-lg border border-white/10 bg-[#2a2640] px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-purple-500/70"
+                className="w-full rounded-lg border border-stone-200 dark:border-stone-600 bg-[var(--surface)] dark:bg-stone-900 px-3 py-2 text-sm text-stone-900 dark:text-stone-100 outline-none focus:ring-2 focus:ring-orange-500/25 dark:focus:ring-orange-400/25 focus:border-orange-400 dark:focus:border-orange-500 shadow-sm"
                 value={projectId}
                 onChange={(e) => setProjectId(e.target.value)}
               >
@@ -456,13 +326,13 @@ export default function PurchaseRequestsPage() {
                 ))}
               </select>
               {selectedProject ? (
-                <div className="rounded-lg border border-white/10 bg-[#2a2640]/80 px-3 py-2 text-sm space-y-1">
+                <div className="rounded-lg border border-stone-200/90 dark:border-stone-600/70 bg-stone-100/80 dark:bg-stone-800/50 px-3 py-2 text-sm space-y-1">
                   <div className="text-muted-foreground">Available budget for this project</div>
                   {availableBudget != null ? (
-                    <div className="font-semibold text-emerald-200">{formatPkr(availableBudget)}</div>
+                    <div className="font-semibold text-emerald-700 dark:text-emerald-400">{formatPkr(availableBudget)}</div>
                   ) : selectedProject.po_id ? (
-                    <div className="text-amber-200/90 text-xs">
-                      Linked PO details could not be loaded. Refresh the page or check the project on the Projects page.
+                    <div className="text-amber-800 dark:text-amber-200 text-xs">
+                      Linked PO details could not be loaded. Refresh the page or open the project from Reports.
                     </div>
                   ) : (
                     <div className="font-semibold text-foreground">{formatPkr(Number(selectedProject.budget))}</div>
@@ -478,7 +348,9 @@ export default function PurchaseRequestsPage() {
             </div>
 
             {hasProjectPo ? (
-              <div className={`md:col-span-2 space-y-2 rounded-lg border border-white/10 bg-[#2a1820]/20 p-3 ${duplicateBorderClass ?? ''}`}>
+              <div
+                className={`md:col-span-2 space-y-2 rounded-lg border border-stone-200/90 dark:border-stone-600/70 bg-amber-50/50 dark:bg-amber-950/25 p-3 ${duplicateBorderClass ?? ''}`}
+              >
                 <label className="block text-sm font-medium">Select Item / PO Line</label>
                 <PoLineTypeahead
                   projectId={projectId}
@@ -494,13 +366,15 @@ export default function PurchaseRequestsPage() {
                   }}
                 />
                 {showDuplicateHighlight ? (
-                  <p className="text-sm text-amber-200/90">
+                  <p className="text-sm text-amber-800 dark:text-amber-200">
                     You have already submitted {previousSameItemCount}{' '}
                     {previousSameItemCount === 1 ? 'request' : 'requests'} for this item code.
                   </p>
                 ) : null}
                 {hasProjectPo && selectedPoLine && exceedsLineBudget ? (
-                  <p className="text-sm font-medium text-rose-300">Exceeds PO limit for this line (remaining after other pending PRs: {formatPkr(selectedPoLine.effective_remaining)}).</p>
+                  <p className="text-sm font-medium text-rose-600 dark:text-rose-400">
+                    Exceeds PO limit for this line (remaining after other pending PRs: {formatPkr(selectedPoLine.effective_remaining)}).
+                  </p>
                 ) : null}
               </div>
             ) : (
@@ -512,7 +386,7 @@ export default function PurchaseRequestsPage() {
                   placeholder="SKU when project has no linked PO"
                 />
                 {showDuplicateHighlight ? (
-                  <p className="text-sm text-amber-200/90">
+                  <p className="text-sm text-amber-800 dark:text-amber-200">
                     You have already submitted {previousSameItemCount}{' '}
                     {previousSameItemCount === 1 ? 'request' : 'requests'} for this item code.
                   </p>
@@ -535,7 +409,7 @@ export default function PurchaseRequestsPage() {
                 </div>
                 <div className="space-y-2">
                   <label className="block text-sm font-medium">Unit price</label>
-                  <div className="rounded-lg border border-white/10 bg-[#2a2640]/80 px-3 py-2 text-sm text-foreground">
+                  <div className="rounded-lg border border-stone-200/90 dark:border-stone-600/70 bg-stone-100/80 dark:bg-stone-800/50 px-3 py-2 text-sm text-foreground">
                     {formatPkr(Number(selectedPoLine.unit_price))}
                   </div>
                 </div>
@@ -546,7 +420,7 @@ export default function PurchaseRequestsPage() {
                     value={computedAmount ?? ''}
                     readOnly
                     disabled
-                    className="opacity-90 cursor-not-allowed bg-[#2a2640]/60"
+                    className="opacity-90 cursor-not-allowed bg-stone-100 dark:bg-stone-800/60"
                   />
                   {computedAmount == null && requestedQty.trim() ? (
                     <p className="text-xs text-muted-foreground">Enter a quantity greater than 0.</p>
@@ -556,7 +430,7 @@ export default function PurchaseRequestsPage() {
             ) : hasProjectPo && selectedPoLine && !lineDrivesAmount ? (
               <div className="md:col-span-2 space-y-2">
                 <label className="block text-sm font-medium">Amount</label>
-                <p className="text-xs text-amber-200/90 mb-1">
+                <p className="text-xs text-amber-800 dark:text-amber-200 mb-1">
                   This line has no unit price — enter the total amount manually.
                 </p>
                 <Input
@@ -593,13 +467,13 @@ export default function PurchaseRequestsPage() {
                 required
               />
               {submitAttempted && descriptionInvalid ? (
-                <p className="text-sm text-rose-300">Description is required (minimum 10 characters).</p>
+                <p className="text-sm text-rose-600 dark:text-rose-400">Description is required (minimum 10 characters).</p>
               ) : null}
             </div>
 
             {isOverBudgetNoPo ? (
               <div className="md:col-span-2">
-                <p className="text-sm font-medium text-rose-300">
+                <p className="text-sm font-medium text-rose-600">
                   This exceeds the available budget ({formatPkr(availableBudget!)}). Reduce the amount or pick another
                   project.
                 </p>
@@ -612,11 +486,11 @@ export default function PurchaseRequestsPage() {
                 type="file"
                 accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx"
                 onChange={(e) => setDocument(e.target.files?.[0] ?? null)}
-                className="file:mr-4 file:rounded-lg file:border-0 file:bg-purple-600 file:px-3 file:py-2 file:text-sm file:text-white hover:file:bg-purple-700"
+                className="file:mr-4 file:rounded-lg file:border-0 file:bg-gradient-to-r file:from-orange-500 file:to-rose-500 file:px-3 file:py-2 file:text-sm file:text-white hover:file:brightness-110"
               />
             </div>
 
-          {error ? <div className="md:col-span-2 text-sm text-rose-300">{error}</div> : null}
+          {error ? <div className="md:col-span-2 text-sm text-rose-600 dark:text-rose-400">{error}</div> : null}
 
             <Button
               className="md:col-span-2"
@@ -633,113 +507,10 @@ export default function PurchaseRequestsPage() {
             </Button>
           </form>
         </Card>
-
-        <Card className="p-6 space-y-4">
-          <h2 className="text-lg font-medium">PR List</h2>
-          {prLoading ? (
-            <div className="text-sm text-muted-foreground">Loading...</div>
-          ) : (
-            <TableWrapper className="max-h-[480px] overflow-x-auto overflow-y-auto rounded-xl border border-white/10">
-              <Table>
-                <THead>
-                  <TR>
-                    <TH>Item code</TH>
-                    <TH>Description</TH>
-                    <TH>Unit price</TH>
-                    <TH>
-                      <span title="Requested quantity">Qty</span>
-                    </TH>
-                    <TH>Requested</TH>
-                    <TH>
-                      <span title="PO line remaining (net of other pending PRs on this line)">Remaining</span>
-                    </TH>
-                    <TH>After approval</TH>
-                    <TH>Status</TH>
-                    <TH className="min-w-[140px]">Last updated</TH>
-                    <TH>Request</TH>
-                    {canDownloadPdf ? <TH>Actions</TH> : null}
-                  </TR>
-                </THead>
-                <TBody>
-                  {(prData?.purchaseRequests ?? []).map((pr) => (
-                    <TR key={pr.id}>
-                      <PrPoLineMetricsCells summary={pr.po_line_summary} />
-                      <TD className="text-xs">{pr.status}</TD>
-                      <TD className="text-xs align-top">
-                        <LastUpdatedMeta at={pr.last_updated_at} user={pr.last_updated_by} />
-                      </TD>
-                      <TD className="text-xs">
-                        {isAdmin ? (
-                          <Link className="text-purple-300 underline" href={`/purchase-requests/${pr.id}`}>
-                            {pr.id.slice(0, 8)}…
-                          </Link>
-                        ) : (
-                          <>{pr.id.slice(0, 8)}…</>
-                        )}
-                      </TD>
-                      {canDownloadPdf ? (
-                        <TD>
-                          <div className="flex flex-col gap-1 min-w-[9rem]">
-                            <Button
-                              type="button"
-                              variant="secondary"
-                              className="text-xs px-2 py-1"
-                              onClick={() => window.open(`/print/pr/${pr.id}`, '_blank')}
-                            >
-                              Download PDF
-                            </Button>
-                            {isAdmin ? (
-                              <>
-                                <Button
-                                  type="button"
-                                  variant="secondary"
-                                  className="text-xs px-2 py-1"
-                                  onClick={() => {
-                                    setOverrideTarget(pr.id);
-                                    setOverrideDecision('approved');
-                                    setOverrideReason('');
-                                  }}
-                                >
-                                  Override approval
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="success"
-                                  className="text-xs px-2 py-1"
-                                  disabled={
-                                    forceApproveFromListMutation.isPending ||
-                                    !(
-                                      (pr.status === 'pending' || pr.status === 'pending_exception') &&
-                                      firstPendingRequiredByPr.get(pr.id)
-                                    )
-                                  }
-                                  title="Finalize immediately (admin only)"
-                                  onClick={() => {
-                                    const aid = firstPendingRequiredByPr.get(pr.id);
-                                    if (aid) forceApproveFromListMutation.mutate(aid);
-                                  }}
-                                >
-                                  Force approve
-                                </Button>
-                              </>
-                            ) : null}
-                          </div>
-                        </TD>
-                      ) : null}
-                    </TR>
-                  ))}
-                </TBody>
-              </Table>
-            </TableWrapper>
-          )}
-          {(prData?.purchaseRequests ?? []).length === 0 && !prLoading ? (
-            <div className="text-sm text-muted-foreground">No purchase requests found.</div>
-          ) : null}
-        </Card>
         {duplicateModalOpen ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/45 dark:bg-stone-950/55 backdrop-blur-[2px] p-4">
             <Card className="max-w-md w-full p-6 space-y-4 border border-amber-500/40 shadow-xl">
-              <h3 className="text-lg font-medium text-amber-100">Duplicate item</h3>
+              <h3 className="text-lg font-medium text-amber-900 dark:text-amber-100">Duplicate item</h3>
               <p className="text-sm text-foreground/90">
                 You are requesting this item for the {ordinalTimeWord(nextOccurrence)} time.
               </p>
@@ -759,65 +530,6 @@ export default function PurchaseRequestsPage() {
                   disabled={mutation.isPending}
                 >
                   Continue to submit
-                </Button>
-              </div>
-            </Card>
-          </div>
-        ) : null}
-
-        {overrideTarget && isAdmin ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4">
-            <Card className="max-w-md w-full p-6 space-y-4 border border-white/15 shadow-xl">
-              <h3 className="text-lg font-medium">Override approval</h3>
-              <p className="text-sm text-muted-foreground">
-                Request: {overrideTarget}. A written reason is required for audit.
-              </p>
-              <div className="space-y-2">
-                <label className="block text-sm font-medium">Decision</label>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant={overrideDecision === 'approved' ? 'success' : 'secondary'}
-                    onClick={() => setOverrideDecision('approved')}
-                  >
-                    Approve
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={overrideDecision === 'rejected' ? 'danger' : 'secondary'}
-                    onClick={() => setOverrideDecision('rejected')}
-                  >
-                    Reject
-                  </Button>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <label className="block text-sm font-medium">Reason (required)</label>
-                <textarea
-                  value={overrideReason}
-                  onChange={(e) => setOverrideReason(e.target.value)}
-                  className="w-full rounded-lg border border-white/10 bg-[#2a2640] px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-purple-500/70"
-                  rows={4}
-                  placeholder="Document why this override is appropriate"
-                />
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="secondary" onClick={() => setOverrideTarget(null)}>
-                  Cancel
-                </Button>
-                <Button
-                  type="button"
-                  variant={overrideDecision === 'approved' ? 'success' : 'danger'}
-                  disabled={!overrideReason.trim() || overrideMutation.isPending}
-                  onClick={() =>
-                    overrideMutation.mutate({
-                      requestId: overrideTarget,
-                      decision: overrideDecision,
-                      reason: overrideReason.trim(),
-                    })
-                  }
-                >
-                  {overrideMutation.isPending ? 'Applying...' : 'Apply override'}
                 </Button>
               </div>
             </Card>

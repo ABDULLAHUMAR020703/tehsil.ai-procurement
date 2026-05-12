@@ -8,6 +8,7 @@ import { enrichPurchaseRequestsWithPoLine } from '../purchaseRequests/poLineCont
 import { attachLastUpdatedFields } from '../auditLogs/lastUpdated';
 import { bypassesDepartmentScope } from '../auth/types';
 import { requirePermission } from '../../middleware/permissions';
+import { companyScopeForRequest } from '../../tenant/requestCompanyId';
 
 export const approvalsRouter = Router();
 
@@ -27,9 +28,11 @@ approvalsRouter.get('/', requirePermission('view_approvals'), requireRole('admin
   try {
     const userId = req.auth!.userId;
     const role = req.auth!.role;
+    const cid = companyScopeForRequest(req);
     let q = supabaseAdmin
       .from('approvals')
       .select('id, request_id, approver_id, role, status, comments, created_at, updated_at, updated_by, is_admin_override')
+      .eq('company_id', cid)
       .order('created_at', { ascending: false })
       .limit(200);
     if (!bypassesDepartmentScope(role)) q = q.eq('approver_id', userId);
@@ -51,13 +54,15 @@ approvalsRouter.get('/', requirePermission('view_approvals'), requireRole('admin
       const { data: prs, error: prErr } = await supabaseAdmin
         .from('purchase_requests')
         .select(
-          'id, project_id, description, amount, item_code, duplicate_count, po_line_id, requested_quantity, status',
+          'id, company_id, project_id, description, amount, item_code, duplicate_count, po_line_id, requested_quantity, status',
         )
+        .eq('company_id', cid)
         .in('id', requestIds);
       if (prErr) throw prErr;
       const summaries = await enrichPurchaseRequestsWithPoLine(
         (prs ?? []).map((p) => ({
           id: p.id as string,
+          company_id: p.company_id as string,
           project_id: p.project_id as string,
           description: p.description as string,
           amount: p.amount as number | string,
@@ -66,6 +71,7 @@ approvalsRouter.get('/', requirePermission('view_approvals'), requireRole('admin
           requested_quantity: (p.requested_quantity as number | string | null) ?? null,
           status: p.status as string,
         })),
+        cid,
       );
       for (const p of prs ?? []) {
         const id = p.id as string;
@@ -78,7 +84,7 @@ approvalsRouter.get('/', requirePermission('view_approvals'), requireRole('admin
         });
       }
     }
-    const withAudit = await attachLastUpdatedFields('approval', rows);
+    const withAudit = await attachLastUpdatedFields('approval', rows, cid);
     const enriched = withAudit.map((a) => ({
       ...a,
       purchase_request: prMap.get(a.request_id as string) ?? null,
@@ -91,7 +97,7 @@ approvalsRouter.get('/', requirePermission('view_approvals'), requireRole('admin
 
 approvalsRouter.post(
   '/override',
-  requireRole('admin'),
+  requireRole('admin', 'platform_admin'),
   async (req, res, next) => {
     try {
       const parsed = OverrideSchema.parse(req.body);
@@ -100,6 +106,7 @@ approvalsRouter.post(
         decision: parsed.decision,
         reason: parsed.reason,
         actorUserId: req.auth!.userId,
+        companyId: companyScopeForRequest(req),
       });
       res.json({ ok: true, result });
     } catch (err) {
@@ -123,6 +130,7 @@ approvalsRouter.post(
         comments: parsed.comments ?? null,
         actorUserId: req.auth!.userId,
         actorRole: req.auth!.role,
+        companyId: companyScopeForRequest(req),
       });
 
       res.json({ ok: true, result });

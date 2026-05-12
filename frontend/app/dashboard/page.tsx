@@ -111,19 +111,27 @@ function lastActivityStyles(activityType: string) {
   const t = activityType.toLowerCase();
   if (t.includes('reject')) {
     return {
-      badge: 'border border-rose-500/45 bg-rose-500/15 text-rose-100',
-      money: 'text-rose-100/95',
+      badge:
+        'border border-rose-200 dark:border-rose-700 bg-rose-50 dark:bg-rose-950/45 text-rose-900 dark:text-rose-200',
+      money: 'text-rose-900 dark:text-rose-200',
+      panel:
+        'border-rose-200/90 dark:border-rose-800/70 bg-white dark:bg-stone-900/85',
     };
   }
   if (t.includes('budget applied') || (t.includes('approved') && !t.includes('exception'))) {
     return {
-      badge: 'border border-emerald-500/45 bg-emerald-500/15 text-emerald-100',
-      money: 'text-emerald-100/95',
+      badge:
+        'border border-orange-200 dark:border-orange-700 bg-orange-50 dark:bg-orange-950/45 text-orange-950 dark:text-orange-100',
+      money: 'text-orange-950 dark:text-orange-100',
+      panel:
+        'border-orange-200/90 dark:border-orange-800/60 bg-white dark:bg-stone-900/85',
     };
   }
   return {
-    badge: 'border border-amber-500/45 bg-amber-500/15 text-amber-100',
-    money: 'text-amber-100/95',
+    badge:
+      'border border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/45 text-amber-900 dark:text-amber-200',
+    money: 'text-amber-900 dark:text-amber-200',
+    panel: 'border-amber-200/90 dark:border-amber-800/60 bg-white dark:bg-stone-900/85',
   };
 }
 
@@ -276,13 +284,17 @@ export default function DashboardPage() {
         />
 
         {isFetching && !isLoading ? (
-          <Card className="p-3 text-sm text-purple-200 border-purple-500/30">Fetching latest data...</Card>
+          <Card className="p-3 text-sm text-orange-900 dark:text-orange-200 border-orange-200 dark:border-orange-800/70 bg-orange-50/90 dark:bg-orange-950/40">
+            Fetching latest data...
+          </Card>
         ) : null}
 
         {isLoading ? (
           <Card className="p-4 text-sm text-muted-foreground">Loading...</Card>
         ) : error ? (
-          <Card className="p-4 text-sm text-rose-300">{error instanceof Error ? error.message : 'Failed to load dashboard'}</Card>
+          <Card className="p-4 text-sm text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800/70 bg-rose-50 dark:bg-rose-950/35">
+            {error instanceof Error ? error.message : 'Failed to load dashboard'}
+          </Card>
         ) : (
           <>
             <AnimatePresence mode="wait">
@@ -307,25 +319,25 @@ export default function DashboardPage() {
                     title="Projects"
                     value={data?.projects ?? 0}
                     onClick={() => setActiveDrillCard('projects')}
-                    accentClass="from-emerald-500/15 to-transparent"
+                    accentClass="from-orange-50 via-[var(--surface)] to-amber-50/55 dark:from-orange-950/35 dark:via-stone-900 dark:to-amber-950/30"
                   />
                   <DashboardCard
                     title="Pending Approvals"
                     value={data?.pendingApprovals ?? 0}
                     onClick={() => setActiveDrillCard('approvals')}
-                    accentClass="from-amber-500/15 to-transparent"
+                    accentClass="from-amber-50 via-[var(--surface)] to-orange-50/50 dark:from-amber-950/35 dark:via-stone-900 dark:to-orange-950/30"
                   />
                   <DashboardCard
                     title="Pending Exceptions"
                     value={data?.pendingExceptions ?? 0}
                     onClick={() => setActiveDrillCard('exceptions')}
-                    accentClass="from-rose-500/15 to-transparent"
+                    accentClass="from-rose-50 via-[var(--surface)] to-red-50/40 dark:from-rose-950/35 dark:via-stone-900 dark:to-red-950/25"
                   />
                   <DashboardCard
                     title="PO Records"
                     value={data?.poRecords ?? 0}
                     onClick={() => setActiveDrillCard('po')}
-                    accentClass="from-cyan-500/15 to-transparent"
+                    accentClass="from-sky-50 via-[var(--surface)] to-cyan-50/50 dark:from-sky-950/35 dark:via-stone-900 dark:to-cyan-950/30"
                   />
                 </motion.div>
               )}
@@ -349,7 +361,7 @@ export default function DashboardPage() {
                       id="dash-dept-filter"
                       value={activityDeptFilter}
                       onChange={(e) => setActivityDeptFilter(e.target.value)}
-                      className="rounded-lg border border-white/10 bg-[#2a2640] px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-purple-500/70 min-w-[200px]"
+                      className="rounded-lg border border-stone-200 dark:border-stone-600 bg-[var(--surface)] dark:bg-stone-900 px-3 py-2 text-sm text-stone-900 dark:text-stone-100 outline-none focus:ring-2 focus:ring-orange-500/25 dark:focus:ring-orange-400/25 focus:border-orange-400 dark:focus:border-orange-500 min-w-[200px] shadow-sm"
                     >
                       <option value="">All departments</option>
                       {(departmentsList?.departments ?? []).map((d) => (
@@ -375,14 +387,14 @@ export default function DashboardPage() {
                     return (
                       <li
                         key={row.id}
-                        className="rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2 text-sm"
+                        className="rounded-lg border border-stone-200 dark:border-stone-600 bg-stone-50/90 dark:bg-stone-800/50 px-3 py-2 text-sm"
                       >
                         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                           <span className="text-xs text-muted-foreground tabular-nums">
                             {new Date(row.timestamp).toLocaleString()}
                           </span>
                           {row.department_scope ? (
-                            <span className="text-[10px] uppercase tracking-wide text-purple-300/90">
+                            <span className="text-[10px] uppercase tracking-wide text-orange-700 dark:text-orange-400 font-semibold">
                               {row.department_scope}
                             </span>
                           ) : null}
@@ -395,7 +407,10 @@ export default function DashboardPage() {
                             {href ? (
                               <>
                                 {' '}
-                                <Link className="text-purple-300 underline" href={href}>
+                                <Link
+                                  className="text-orange-700 dark:text-orange-400 underline font-medium hover:text-orange-900 dark:hover:text-orange-300"
+                                  href={href}
+                                >
                                   {row.entity_id.slice(0, 8)}…
                                 </Link>
                               </>
@@ -424,9 +439,15 @@ export default function DashboardPage() {
                 ) : (
                   <div className="space-y-1">
                     {(recentPrs ?? []).map((pr) => (
-                      <div key={pr.id} className="text-sm space-y-1 border-b border-white/5 pb-2 last:border-0">
+                      <div
+                        key={pr.id}
+                        className="text-sm space-y-1 border-b border-stone-100 dark:border-stone-700 pb-2 last:border-0"
+                      >
                         <div>
-                          <Link className="text-purple-300 underline" href={`/purchase-requests/${pr.id}`}>
+                          <Link
+                            className="text-orange-700 dark:text-orange-400 underline font-medium hover:text-orange-900 dark:hover:text-orange-300"
+                            href={`/purchase-requests/${pr.id}`}
+                          >
                             {pr.id.slice(0, 8)}...
                           </Link>{' '}
                           — {pr.status}
@@ -449,12 +470,14 @@ export default function DashboardPage() {
                       setPage(1);
                     }}
                     placeholder="Search PO, vendor, item…"
-                    className="rounded-lg border border-white/10 bg-[#2a2640] px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-purple-500/70"
+                    className="rounded-lg border border-stone-200 dark:border-stone-600 bg-[var(--surface)] dark:bg-stone-900 px-3 py-2 text-sm text-stone-900 dark:text-stone-100 outline-none focus:ring-2 focus:ring-orange-500/25 dark:focus:ring-orange-400/25 focus:border-orange-400 dark:focus:border-orange-500 shadow-sm"
                   />
                   <select
                     value={sortBy}
-                    onChange={(e) => setSortBy(e.target.value as 'vendor' | 'total' | 'remaining')}
-                    className="rounded-lg border border-white/10 bg-[#2a2640] px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-purple-500/70"
+                    onChange={(e) =>
+                      setSortBy(e.target.value as 'last_activity' | 'vendor' | 'total' | 'remaining')
+                    }
+                    className="rounded-lg border border-stone-200 dark:border-stone-600 bg-[var(--surface)] dark:bg-stone-900 px-3 py-2 text-sm text-stone-900 dark:text-stone-100 outline-none focus:ring-2 focus:ring-orange-500/25 dark:focus:ring-orange-400/25 focus:border-orange-400 dark:focus:border-orange-500 shadow-sm"
                   >
                     <option value="last_activity">Sort: Last activity</option>
                     <option value="vendor">Sort: Vendor</option>
@@ -464,7 +487,7 @@ export default function DashboardPage() {
                   <button
                     type="button"
                     onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
-                    className="rounded-lg border border-white/10 bg-[#2a2640] px-3 py-2 text-sm hover:bg-[#352f52]"
+                    className="rounded-lg border border-stone-200 dark:border-stone-600 bg-[var(--surface)] dark:bg-stone-900 px-3 py-2 text-sm text-stone-800 dark:text-stone-100 hover:bg-stone-50 dark:hover:bg-stone-800 shadow-sm"
                   >
                     {sortDir === 'asc' ? 'Asc' : 'Desc'}
                   </button>
@@ -478,10 +501,10 @@ export default function DashboardPage() {
                   const consumed = Math.max(0, total - remaining);
                   const usedPct = total > 0 ? Math.min(100, (consumed / total) * 100) : 0;
                   const barColor =
-                    remaining <= 0 ? 'bg-rose-500' : usedPct >= 80 ? 'bg-amber-500' : 'bg-emerald-500';
+                    remaining <= 0 ? 'bg-rose-500' : usedPct >= 80 ? 'bg-amber-500' : 'bg-orange-500';
                   return (
-                    <Card key={group.anchor_po_line_id} className="p-4 space-y-3 border border-white/10">
-                      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 border-b border-white/10 pb-3">
+                    <Card key={group.anchor_po_line_id} className="p-4 space-y-3 border-stone-200/90 dark:border-stone-600/80">
+                      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 border-b border-stone-100 dark:border-stone-700 pb-3">
                         <div>
                           <div className="text-base font-semibold text-foreground">{group.po}</div>
                           <div className="text-xs text-muted-foreground mt-0.5">
@@ -499,22 +522,24 @@ export default function DashboardPage() {
                           </div>
                           <div>
                             <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Remaining</div>
-                            <div className="font-medium tabular-nums text-emerald-200">{formatCurrency(remaining)}</div>
+                            <div className="font-medium tabular-nums text-orange-900 dark:text-orange-300">
+                              {formatCurrency(remaining)}
+                            </div>
                           </div>
                           <div className="col-span-2 sm:col-span-2">
                             <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Consumed</div>
                             <div className="font-medium tabular-nums">{formatCurrency(consumed)}</div>
-                            <div className="h-1.5 mt-1 w-full max-w-[200px] rounded-full bg-white/10 overflow-hidden">
+                            <div className="h-1.5 mt-1 w-full max-w-[200px] rounded-full bg-stone-200 dark:bg-stone-600 overflow-hidden">
                               <div className={`h-full ${barColor}`} style={{ width: `${usedPct}%` }} />
                             </div>
                           </div>
                         </div>
                         <div className="flex flex-col items-start gap-1 sm:items-end">
                           <span
-                            className={`rounded px-2 py-1 text-xs ${
+                            className={`rounded px-2 py-1 text-xs font-medium ${
                               poStatus(remaining) === 'Exhausted'
-                                ? 'bg-rose-500/20 text-rose-300'
-                                : 'bg-emerald-500/20 text-emerald-300'
+                                ? 'bg-rose-100 dark:bg-rose-950/50 text-rose-800 dark:text-rose-200 border border-rose-200 dark:border-rose-700'
+                                : 'bg-emerald-100 dark:bg-emerald-950/45 text-emerald-800 dark:text-emerald-200 border border-emerald-200 dark:border-emerald-700'
                             }`}
                           >
                             {poStatus(remaining)}
@@ -540,8 +565,8 @@ export default function DashboardPage() {
                         className="mt-2"
                       />
 
-                      <div className="rounded-xl border border-purple-500/25 bg-[#1a1730]/90 p-4 space-y-3">
-                        <div className="text-[11px] font-bold uppercase tracking-widest text-purple-200/90">
+                      <div className="rounded-xl border border-orange-200/90 dark:border-orange-800/50 bg-orange-50/50 dark:bg-orange-950/25 p-4 space-y-3">
+                        <div className="text-[11px] font-bold uppercase tracking-widest text-orange-900 dark:text-orange-300">
                           Last activity
                         </div>
                         {(() => {
@@ -592,7 +617,7 @@ export default function DashboardPage() {
                                     PR:{' '}
                                     {isAdmin ? (
                                       <Link
-                                        className="text-purple-300 underline"
+                                        className="text-orange-700 dark:text-orange-400 underline font-medium hover:text-orange-900 dark:hover:text-orange-300"
                                         href={`/purchase-requests/${lt.reference.pr_id}`}
                                       >
                                         {lt.reference.pr_id.slice(0, 8)}…
@@ -616,16 +641,16 @@ export default function DashboardPage() {
                                 ) : null}
                               </div>
                               <div
-                                className={`grid grid-cols-1 sm:grid-cols-3 gap-2 rounded-lg border border-white/10 bg-black/20 px-3 py-2.5 text-xs ${styles.money}`}
+                                className={`grid grid-cols-1 sm:grid-cols-3 gap-2 rounded-lg border px-3 py-2.5 text-xs ${styles.panel} ${styles.money}`}
                               >
                                 <div>
-                                  <div className="text-[10px] uppercase tracking-wide text-white/50">
+                                  <div className="text-[10px] uppercase tracking-wide text-stone-500 dark:text-stone-400">
                                     Budget before
                                   </div>
                                   <div className="font-semibold tabular-nums">{formatCurrency(previous_budget)}</div>
                                 </div>
                                 <div>
-                                  <div className="text-[10px] uppercase tracking-wide text-white/50">
+                                  <div className="text-[10px] uppercase tracking-wide text-stone-500 dark:text-stone-400">
                                     {showDeduction ? 'Transaction' : lt.type.includes('Submitted') ? 'Requested' : 'Transaction'}
                                   </div>
                                   <div className="font-semibold tabular-nums">
@@ -641,7 +666,9 @@ export default function DashboardPage() {
                                   </div>
                                 </div>
                                 <div>
-                                  <div className="text-[10px] uppercase tracking-wide text-white/50">Remaining</div>
+                                  <div className="text-[10px] uppercase tracking-wide text-stone-500 dark:text-stone-400">
+                                    Remaining
+                                  </div>
                                   <div className="font-semibold tabular-nums">{formatCurrency(current_budget)}</div>
                                 </div>
                               </div>
@@ -650,10 +677,10 @@ export default function DashboardPage() {
                         })()}
                       </div>
 
-                      <div className="overflow-x-auto rounded-lg border border-white/5">
+                      <div className="overflow-x-auto rounded-lg border border-stone-200 dark:border-stone-600">
                         <table className="min-w-full text-xs">
                           <thead>
-                            <tr className="text-left text-muted-foreground border-b border-white/10">
+                            <tr className="text-left text-muted-foreground border-b border-stone-200 dark:border-stone-600 bg-stone-50/90 dark:bg-stone-800/80">
                               <th className="px-2 py-1.5 font-medium">Item</th>
                               <th className="px-2 py-1.5 font-medium">Line</th>
                               <th className="px-2 py-1.5 font-medium text-right">Line amount</th>
@@ -664,7 +691,11 @@ export default function DashboardPage() {
                             {group.items.map((it, idx) => (
                               <tr
                                 key={it.id}
-                                className={idx % 2 === 0 ? 'bg-white/[0.02]' : 'bg-transparent'}
+                                className={
+                                  idx % 2 === 0
+                                    ? 'bg-stone-50/70 dark:bg-stone-800/35'
+                                    : 'bg-[var(--surface)] dark:bg-stone-900/40'
+                                }
                               >
                                 <td className="px-2 py-1.5 max-w-[200px]">
                                   <div className="text-foreground font-medium">{it.item_code ?? '—'}</div>
@@ -676,7 +707,7 @@ export default function DashboardPage() {
                                   {it.line_no ?? it.po_line_sn ?? '—'}
                                 </td>
                                 <td className="px-2 py-1.5 text-right tabular-nums">{formatCurrency(it.po_amount)}</td>
-                                <td className="px-2 py-1.5 text-right tabular-nums text-emerald-200/90">
+                                <td className="px-2 py-1.5 text-right tabular-nums text-orange-900 dark:text-orange-300 font-medium">
                                   {formatCurrency(it.remaining_amount)}
                                 </td>
                               </tr>
@@ -688,7 +719,7 @@ export default function DashboardPage() {
                   );
                 })}
                 {pagedPos.length === 0 ? (
-                  <div className="rounded-xl border border-white/10 px-3 py-4 text-sm text-muted-foreground text-center">
+                  <div className="rounded-xl border border-stone-200 dark:border-stone-600 bg-stone-50/70 dark:bg-stone-800/40 px-3 py-4 text-sm text-muted-foreground text-center">
                     No PO records found.
                   </div>
                 ) : null}
@@ -703,7 +734,7 @@ export default function DashboardPage() {
                     type="button"
                     disabled={page <= 1}
                     onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    className="rounded border border-white/10 px-3 py-1 text-xs disabled:opacity-50"
+                    className="rounded-lg border border-stone-200 dark:border-stone-600 bg-[var(--surface)] dark:bg-stone-900 px-3 py-1 text-xs text-stone-700 dark:text-stone-200 hover:bg-stone-50 dark:hover:bg-stone-800 disabled:opacity-50 shadow-sm"
                   >
                     Prev
                   </button>
@@ -711,7 +742,7 @@ export default function DashboardPage() {
                     type="button"
                     disabled={page >= totalPages}
                     onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                    className="rounded border border-white/10 px-3 py-1 text-xs disabled:opacity-50"
+                    className="rounded-lg border border-stone-200 dark:border-stone-600 bg-[var(--surface)] dark:bg-stone-900 px-3 py-1 text-xs text-stone-700 dark:text-stone-200 hover:bg-stone-50 dark:hover:bg-stone-800 disabled:opacity-50 shadow-sm"
                   >
                     Next
                   </button>

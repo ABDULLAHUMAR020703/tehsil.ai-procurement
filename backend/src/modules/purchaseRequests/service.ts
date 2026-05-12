@@ -4,7 +4,11 @@ import { supabaseAdmin } from '../../config/supabase';
 import { AppError } from '../../utils/errors';
 import { startApprovalsForPurchaseRequest } from '../approvals/engine';
 import { recordTrackedAction } from '../auditLogs/trackedAction';
-import type { UserRole } from '../auth/types';
+import {
+  bypassesDepartmentScope,
+  isDeptManagerRole,
+  type UserRole,
+} from '../auth/types';
 import { normalizeItemCode } from '../../utils/itemCode';
 import {
   poLineMatchesProjectAnchor,
@@ -12,14 +16,20 @@ import {
   sumPendingAmountOnPoLine,
   type PoAnchor,
 } from './poLineContext';
-import { assertActorMaySubmitPurchaseRequestForProject } from '../projects/projectAccess';
+import { assertActorMaySubmitPurchaseRequestForProject, fetchProjectForAccess } from '../projects/projectAccess';
+import type { TenantAuth } from '../../tenant/tenantScope';
 
 export { normalizeItemCode } from '../../utils/itemCode';
 
-export async function countPreviousPrsForSameItem(userId: string, itemCodeNorm: string): Promise<number> {
+export async function countPreviousPrsForSameItem(
+  userId: string,
+  itemCodeNorm: string,
+  companyId: string,
+): Promise<number> {
   const { count, error } = await supabaseAdmin
     .from('purchase_requests')
     .select('*', { count: 'exact', head: true })
+    .eq('company_id', companyId)
     .eq('created_by', userId)
     .eq('item_code', itemCodeNorm);
   if (error) throw error;
@@ -37,6 +47,7 @@ export async function createPurchaseRequest(params: {
   createdBy: string;
   actorRole: UserRole;
   actorDepartment?: string | null;
+  companyId: string;
 }) {
   const {
     projectId,
@@ -49,6 +60,7 @@ export async function createPurchaseRequest(params: {
     createdBy,
     actorRole,
     actorDepartment,
+    companyId,
   } = params;
 
   if (!description.trim()) throw new AppError('Description is required', 400);
@@ -56,7 +68,8 @@ export async function createPurchaseRequest(params: {
 
   const { data: project, error: prjErr } = await supabaseAdmin
     .from('projects')
-    .select('id, po_id, budget, status, created_by, department_id, team_lead_id, pm_id')
+    .select('id, company_id, po_id, budget, status, created_by, department_id, team_lead_id, pm_id')
+    .eq('company_id', companyId)
     .eq('id', projectId)
     .single();
   if (prjErr || !project) throw prjErr ?? new AppError('Project not found', 404);
@@ -79,6 +92,7 @@ export async function createPurchaseRequest(params: {
     const { data: a, error: aErr } = await supabaseAdmin
       .from('purchase_orders')
       .select('id, po, po_line_sn, item_code')
+      .eq('company_id', companyId)
       .eq('id', project.po_id)
       .single();
     if (!aErr && a) anchorPo = a as PoAnchor;
@@ -87,11 +101,13 @@ export async function createPurchaseRequest(params: {
   await assertActorMaySubmitPurchaseRequestForProject({
     project: {
       id: project.id as string,
+      company_id: project.company_id as string,
       department_id: project.department_id as string,
       team_lead_id: (project.team_lead_id as string | null) ?? null,
       pm_id: pmRowId,
       created_by: project.created_by as string,
       status: project.status as string,
+      po_id: (project.po_id as string | null) ?? null,
     },
     actorUserId: createdBy,
     actorRole,
@@ -122,6 +138,7 @@ export async function createPurchaseRequest(params: {
     const { data: lineRow, error: lrErr } = await supabaseAdmin
       .from('purchase_orders')
       .select('id, po, remaining_amount, item_code, unit_price')
+      .eq('company_id', companyId)
       .eq('po_line_sn', snTrim)
       .maybeSingle();
     if (lrErr) throw lrErr;
@@ -157,7 +174,7 @@ export async function createPurchaseRequest(params: {
       }
     }
 
-    const pendingOnLine = await sumPendingAmountOnPoLine({ poLineId: matchedPoLineId });
+    const pendingOnLine = await sumPendingAmountOnPoLine({ poLineId: matchedPoLineId, companyId });
     const effectiveRemaining = Number(lineRow.remaining_amount) - pendingOnLine;
     if (reqAmount > effectiveRemaining) {
       throw new AppError('Requested amount exceeds available amount for this PO line', 400, {
@@ -177,10 +194,11 @@ export async function createPurchaseRequest(params: {
       anchor: anchorPo,
       itemCodeNorm,
       poLineSnRaw: null,
+      companyId,
     });
     if (matched) {
       matchedPoLineId = matched.id;
-      const pendingOnLine = await sumPendingAmountOnPoLine({ poLineId: matched.id });
+      const pendingOnLine = await sumPendingAmountOnPoLine({ poLineId: matched.id, companyId });
       const effectiveRemaining = Number(matched.remaining_amount) - pendingOnLine;
       if (reqAmount > effectiveRemaining) {
         throw new AppError('Requested amount exceeds available amount for this PO line', 400, {
@@ -203,6 +221,7 @@ export async function createPurchaseRequest(params: {
       const { data: po, error: poErr } = await supabaseAdmin
         .from('purchase_orders')
         .select('remaining_value')
+        .eq('company_id', companyId)
         .eq('id', project.po_id)
         .single();
       if (poErr || !po) throw poErr ?? new AppError('PO not found', 404);
@@ -229,7 +248,7 @@ export async function createPurchaseRequest(params: {
     const safeExt = documentFile.originalName.includes('.')
       ? documentFile.originalName.slice(documentFile.originalName.lastIndexOf('.'))
       : '';
-    const path = `pr-documents/${projectId}/${Date.now()}-${createdBy}${safeExt}`.replace(/\\/g, '/');
+    const path = `documents/${companyId}/pr-documents/${projectId}/${Date.now()}-${createdBy}${safeExt}`.replace(/\\/g, '/');
 
     const { error: upErr } = await supabaseAdmin.storage.from(bucket).upload(path, documentFile.buffer, {
       contentType: documentFile.mimeType,
@@ -241,12 +260,13 @@ export async function createPurchaseRequest(params: {
 
   let duplicate_count = 1;
   if (storedItemCodeNorm) {
-    const previous = await countPreviousPrsForSameItem(createdBy, storedItemCodeNorm);
+    const previous = await countPreviousPrsForSameItem(createdBy, storedItemCodeNorm, companyId);
     duplicate_count = previous + 1;
   }
 
   const prPayload = {
     project_id: project.id,
+    company_id: companyId,
     description: description.trim(),
     amount: reqAmount,
     document_url: documentUrl,
@@ -274,8 +294,9 @@ export async function createPurchaseRequest(params: {
       entityId: pr.id as string,
       changes: { amount: reqAmount, project_id: project.id, po_line_id: matchedPoLineId },
       departmentScope: project.department_id as string,
+      companyId: project.company_id as string,
     },
-    touch: { table: 'purchase_requests', id: pr.id as string },
+    touch: { table: 'purchase_requests', id: pr.id as string, companyId: project.company_id as string },
     notify: [
       {
         userId: createdBy,
@@ -295,6 +316,67 @@ export async function createPurchaseRequest(params: {
   await startApprovalsForPurchaseRequest(pr.id, createdBy);
 
   return { pr };
+}
+
+export async function deletePurchaseRequest(params: {
+  requestId: string;
+  actorUserId: string;
+  actorRole: UserRole;
+  actorDepartment: string | null;
+  companyId: string;
+}) {
+  const { requestId, actorUserId, actorRole, actorDepartment, companyId } = params;
+
+  if (actorRole === 'employee') {
+    throw new AppError('Forbidden', 403);
+  }
+
+  const { data: pr, error: prErr } = await supabaseAdmin
+    .from('purchase_requests')
+    .select('id, project_id, status, budget_deducted, created_by')
+    .eq('company_id', companyId)
+    .eq('id', requestId)
+    .maybeSingle();
+  if (prErr) throw prErr;
+  if (!pr) throw new AppError('Purchase request not found', 404);
+
+  if (pr.status === 'approved' || pr.budget_deducted === true) {
+    throw new AppError('Cannot delete an approved purchase request that affected budget', 409);
+  }
+
+  const tenantAuth: TenantAuth = { userId: actorUserId, role: actorRole, companyId };
+  const project = await fetchProjectForAccess(pr.project_id as string, tenantAuth);
+
+  if (!bypassesDepartmentScope(actorRole)) {
+    if (!isDeptManagerRole(actorRole)) {
+      throw new AppError('Forbidden', 403);
+    }
+    if (!actorDepartment || actorDepartment !== project.department_id) {
+      throw new AppError('You can only delete purchase requests for projects in your department', 403);
+    }
+  }
+
+  const { error: delErr } = await supabaseAdmin
+    .from('purchase_requests')
+    .delete()
+    .eq('company_id', companyId)
+    .eq('id', requestId);
+  if (delErr) throw delErr;
+
+  await recordTrackedAction({
+    audit: {
+      action: 'purchase_request_deleted',
+      userId: actorUserId,
+      entity: 'purchase_request',
+      entityType: 'purchase_request',
+      entityId: requestId,
+      changes: { project_id: pr.project_id, status: pr.status },
+      departmentScope: project.department_id,
+      companyId,
+    },
+  });
+
+  return { ok: true as const };
 }
 
 

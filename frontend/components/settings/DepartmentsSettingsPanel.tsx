@@ -109,12 +109,12 @@ export function DepartmentsSettingsPanel({ supabase }: Props) {
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-white">Departments management</h2>
-          <p className="text-xs text-slate-400 mt-1">Rename updates the name everywhere. Delete is only allowed with zero employees and projects.</p>
+          <h2 className="text-lg font-semibold text-stone-900 dark:text-stone-50">Department management</h2>
+          <p className="text-xs text-muted-foreground mt-1">Rename updates the name everywhere. Delete is only allowed with zero employees and projects.</p>
         </div>
         <Button
           type="button"
-          className="gap-2 shrink-0 shadow-[0_0_20px_rgba(147,51,234,0.2)] hover:shadow-[0_0_28px_rgba(147,51,234,0.35)] transition-shadow"
+          className="gap-2 shrink-0 shadow-sm hover:shadow-md transition-shadow"
           onClick={() => {
             setAddName('');
             setAddOpen(true);
@@ -128,12 +128,12 @@ export function DepartmentsSettingsPanel({ supabase }: Props) {
       {isLoading ? (
         <Card className="p-4 text-sm text-muted-foreground">Loading departments…</Card>
       ) : error ? (
-        <Card className="p-4 text-sm text-rose-300">
+        <Card className="p-4 text-sm text-rose-600 border-rose-200 bg-rose-50">
           {error instanceof Error ? error.message : 'Failed to load departments'}
         </Card>
       ) : (
-        <Card className="p-0 overflow-hidden border border-white/10">
-          <TableWrapper className="max-h-[min(560px,70vh)] overflow-y-auto">
+        <Card className="p-0 overflow-hidden border border-stone-200/90 dark:border-stone-600/70">
+          <TableWrapper className="scrollbar-warm max-h-[min(560px,70vh)] overflow-y-auto">
             <Table>
               <THead>
                 <TR>
@@ -151,34 +151,36 @@ export function DepartmentsSettingsPanel({ supabase }: Props) {
                   </TR>
                 ) : (
                   rows.map((d) => (
-                    <TR key={d.code} className="hover:bg-white/[0.03] transition-colors">
+                    <TR key={d.code} className="hover:bg-orange-50/70 dark:hover:bg-stone-800/55 transition-colors">
                       <TD>
-                        <div className="font-medium text-slate-100">{d.display_name}</div>
-                        <div className="text-[10px] uppercase tracking-wider text-slate-500 mt-0.5">{d.code}</div>
+                        <div className="font-medium text-stone-900 dark:text-stone-100">{d.display_name}</div>
+                        <div className="text-[10px] uppercase tracking-wider text-stone-500 dark:text-stone-400 mt-0.5">
+                          {d.code}
+                        </div>
                       </TD>
-                      <TD className="tabular-nums text-slate-300">{d.employee_count}</TD>
+                      <TD className="tabular-nums text-stone-700 dark:text-stone-300">{d.employee_count}</TD>
                       <TD className="text-right">
                         <div className="inline-flex gap-1 justify-end">
                           <Button
                             type="button"
                             variant="secondary"
-                            className="p-2 rounded-lg border-purple-500/20 hover:border-purple-500/50 hover:bg-purple-500/10"
+                            className="p-2 rounded-lg border-orange-200 dark:border-orange-700/50 hover:border-orange-400 dark:hover:border-orange-500 hover:bg-orange-50 dark:hover:bg-orange-950/40"
                             title="Rename"
                             onClick={() => {
                               setRenameTarget(d);
                               setRenameName(d.display_name);
                             }}
                           >
-                            <Pencil className="w-4 h-4 text-purple-200" aria-hidden />
+                            <Pencil className="w-4 h-4 text-orange-600 dark:text-orange-400" aria-hidden />
                           </Button>
                           <Button
                             type="button"
                             variant="secondary"
-                            className="p-2 rounded-lg border-rose-500/20 hover:border-rose-500/50 hover:bg-rose-500/10"
+                            className="p-2 rounded-lg border-rose-200 dark:border-rose-800/60 hover:border-rose-400 dark:hover:border-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40"
                             title="Delete"
                             onClick={() => setDeleteTarget(d)}
                           >
-                            <Trash2 className="w-4 h-4 text-rose-300" aria-hidden />
+                            <Trash2 className="w-4 h-4 text-rose-600 dark:text-rose-400" aria-hidden />
                           </Button>
                         </div>
                       </TD>
@@ -204,12 +206,12 @@ export function DepartmentsSettingsPanel({ supabase }: Props) {
             createMutation.mutate(name);
           }}
         >
-          <label className="block text-sm text-slate-300">
+          <label className="block text-sm font-medium text-stone-700 dark:text-stone-300">
             Name
             <input
               value={addName}
               onChange={(e) => setAddName(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-white/10 bg-[#2a2640] px-3 py-2 text-sm text-white outline-none focus:ring-2 focus:ring-purple-500/70"
+              className="mt-1 w-full rounded-lg border border-stone-200 dark:border-stone-600 bg-[var(--surface)] dark:bg-stone-900 px-3 py-2 text-sm text-stone-900 dark:text-stone-100 outline-none focus:ring-2 focus:ring-orange-500/25 dark:focus:ring-orange-400/25 focus:border-orange-400 dark:focus:border-orange-500"
               placeholder="e.g. Field Operations"
               autoFocus
             />
@@ -243,15 +245,16 @@ export function DepartmentsSettingsPanel({ supabase }: Props) {
             renameMutation.mutate({ code: renameTarget.code, display_name: name });
           }}
         >
-          <p className="text-xs text-slate-400">
-            Code <span className="font-mono text-purple-200/90">{renameTarget?.code}</span> stays the same; all users and projects keep the same assignment.
+          <p className="text-xs text-stone-600 dark:text-stone-400">
+            Code <span className="font-mono text-orange-800 dark:text-orange-400">{renameTarget?.code}</span> stays the
+            same; all users and projects keep the same assignment.
           </p>
-          <label className="block text-sm text-slate-300">
+          <label className="block text-sm font-medium text-stone-700 dark:text-stone-300">
             Display name
             <input
               value={renameName}
               onChange={(e) => setRenameName(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-white/10 bg-[#2a2640] px-3 py-2 text-sm text-white outline-none focus:ring-2 focus:ring-purple-500/70"
+              className="mt-1 w-full rounded-lg border border-stone-200 dark:border-stone-600 bg-[var(--surface)] dark:bg-stone-900 px-3 py-2 text-sm text-stone-900 dark:text-stone-100 outline-none focus:ring-2 focus:ring-orange-500/25 dark:focus:ring-orange-400/25 focus:border-orange-400 dark:focus:border-orange-500"
               autoFocus
             />
           </label>
@@ -269,27 +272,34 @@ export function DepartmentsSettingsPanel({ supabase }: Props) {
       <Modal open={deleteTarget != null} onClose={() => !deleteMutation.isPending && setDeleteTarget(null)} title="Delete department">
         {deleteTarget ? (
           <div className="space-y-4">
-            <p className="text-sm text-slate-300">
-              You are about to delete <span className="font-semibold text-white">{deleteTarget.display_name}</span> (
-              <span className="font-mono text-xs text-purple-300">{deleteTarget.code}</span>).
+            <p className="text-sm text-stone-600 dark:text-stone-400">
+              You are about to delete{' '}
+              <span className="font-semibold text-stone-900 dark:text-stone-100">{deleteTarget.display_name}</span> (
+              <span className="font-mono text-xs text-orange-800 dark:text-orange-400">{deleteTarget.code}</span>).
             </p>
-            <ul className="text-sm text-slate-400 space-y-1 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
+            <ul className="text-sm text-stone-600 dark:text-stone-400 space-y-1 rounded-lg border border-stone-200/90 dark:border-stone-600/70 bg-orange-50/40 dark:bg-stone-800/50 px-3 py-2">
               <li>
                 Employees in this department:{' '}
-                <span className="tabular-nums text-slate-200 font-medium">{deleteTarget.employee_count}</span>
+                <span className="tabular-nums text-stone-900 dark:text-stone-100 font-medium">
+                  {deleteTarget.employee_count}
+                </span>
               </li>
               <li>
                 Projects in this department:{' '}
-                <span className="tabular-nums text-slate-200 font-medium">{deleteTarget.project_count}</span>
+                <span className="tabular-nums text-stone-900 dark:text-stone-100 font-medium">
+                  {deleteTarget.project_count}
+                </span>
               </li>
             </ul>
             {deleteTarget.employee_count > 0 ? (
-              <p className="text-sm text-amber-200/90">
+              <p className="text-sm text-amber-900 dark:text-amber-200">
                 Reassign all employees to another department before deleting.
               </p>
             ) : null}
             {deleteTarget.project_count > 0 ? (
-              <p className="text-sm text-amber-200/90">Archive or move projects to another department before deleting.</p>
+              <p className="text-sm text-amber-900 dark:text-amber-200">
+                Archive or move projects to another department before deleting.
+              </p>
             ) : null}
             <div className="flex justify-end gap-2 pt-2">
               <Button type="button" variant="secondary" disabled={deleteMutation.isPending} onClick={() => setDeleteTarget(null)}>

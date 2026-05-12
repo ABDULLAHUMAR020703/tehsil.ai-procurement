@@ -10,15 +10,15 @@ const LABELS: Record<string, string> = {
 function badgeClass(role: string): string {
   switch (role) {
     case 'admin':
-      return 'bg-purple-500/20 text-purple-200 border-purple-500/35';
+      return 'bg-orange-200/90 text-orange-950 border-orange-400/70 dark:bg-orange-950/55 dark:text-orange-100 dark:border-orange-700/60';
     case 'pm':
-      return 'bg-blue-500/20 text-blue-200 border-blue-500/35';
+      return 'bg-amber-100 text-amber-950 border-amber-300/80 dark:bg-amber-950/45 dark:text-amber-100 dark:border-amber-700/50';
     case 'dept_head':
-      return 'bg-amber-500/20 text-amber-200 border-amber-500/35';
+      return 'bg-amber-50 text-amber-950 border-amber-200 dark:bg-stone-800 dark:text-amber-100 dark:border-amber-800/50';
     case 'employee':
-      return 'bg-slate-500/20 text-slate-200 border-slate-500/35';
+      return 'bg-stone-100 text-stone-800 border-stone-300 dark:bg-stone-800 dark:text-stone-200 dark:border-stone-600';
     default:
-      return 'bg-emerald-500/20 text-emerald-200 border-emerald-500/35';
+      return 'bg-orange-100 text-orange-900 border-orange-200 dark:bg-orange-950/50 dark:text-orange-100 dark:border-orange-700/60';
   }
 }
 

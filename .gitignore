@@ -22,6 +22,9 @@ Thumbs.db
 .idea/
 .vscode/
 
+# Supabase CLI local state (do not commit)
+backend/supabase/.temp/
+
 # Logs
 *.log
 npm-debug.log*

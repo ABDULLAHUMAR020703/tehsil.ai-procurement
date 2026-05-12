@@ -11,9 +11,14 @@ export type TrackedNotifyEntry = {
   emailSubject?: string;
 };
 
-/** Bump row `updated_by` so DB triggers refresh `updated_at`. */
-export async function touchEntityRow(table: TouchableTable, id: string, userId: string): Promise<void> {
-  const { error } = await supabaseAdmin.from(table).update({ updated_by: userId }).eq('id', id);
+/** Bump row `updated_by` so DB triggers refresh `updated_at`. Always scoped by tenant. */
+export async function touchEntityRow(
+  table: TouchableTable,
+  id: string,
+  userId: string,
+  companyId: string,
+): Promise<void> {
+  const { error } = await supabaseAdmin.from(table).update({ updated_by: userId }).eq('id', id).eq('company_id', companyId);
   if (error) throw error;
 }
 
@@ -32,6 +37,7 @@ export async function deliverTrackedNotifications(entries: TrackedNotifyEntry[])
           toEmail: email,
           subject: n.emailSubject,
           body: n.message,
+          userId: n.userId,
         });
       }
     }
@@ -44,12 +50,12 @@ export async function deliverTrackedNotifications(entries: TrackedNotifyEntry[])
  */
 export async function recordTrackedAction(params: {
   audit: AuditLogInsert;
-  touch?: { table: TouchableTable; id: string };
+  touch?: { table: TouchableTable; id: string; companyId: string };
   notify?: TrackedNotifyEntry[];
 }): Promise<void> {
   await writeAuditLog(params.audit);
   if (params.touch) {
-    await touchEntityRow(params.touch.table, params.touch.id, params.audit.userId);
+    await touchEntityRow(params.touch.table, params.touch.id, params.audit.userId, params.touch.companyId);
   }
   if (params.notify && params.notify.length > 0) {
     await deliverTrackedNotifications(params.notify);

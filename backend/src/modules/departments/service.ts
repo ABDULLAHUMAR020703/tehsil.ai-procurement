@@ -2,17 +2,30 @@ import { supabaseAdmin } from '../../config/supabase';
 import { AppError } from '../../utils/errors';
 import { slugifyDepartmentCode } from './slug';
 
-/** Returns canonical code if the row exists. */
-export async function resolveDepartmentCode(value: string | null | undefined): Promise<string | null> {
+/** Returns canonical code if the row exists for this tenant. */
+export async function resolveDepartmentCode(
+  value: string | null | undefined,
+  companyId: string,
+): Promise<string | null> {
   if (!value || !String(value).trim()) return null;
   const code = String(value).trim();
-  const { data, error } = await supabaseAdmin.from('departments').select('code').eq('code', code).maybeSingle();
+  const { data, error } = await supabaseAdmin
+    .from('departments')
+    .select('code')
+    .eq('company_id', companyId)
+    .eq('code', code)
+    .maybeSingle();
   if (error) throw error;
   return (data?.code as string) ?? null;
 }
 
-export async function assertDepartmentExists(code: string): Promise<void> {
-  const { data, error } = await supabaseAdmin.from('departments').select('code').eq('code', code).maybeSingle();
+export async function assertDepartmentExists(code: string, companyId: string): Promise<void> {
+  const { data, error } = await supabaseAdmin
+    .from('departments')
+    .select('code')
+    .eq('company_id', companyId)
+    .eq('code', code)
+    .maybeSingle();
   if (error) throw error;
   if (!data) throw new AppError('Invalid department', 400);
 }
@@ -31,15 +44,15 @@ function normalizeDisplayName(raw: string): string {
   return s;
 }
 
-async function codesInUse(): Promise<Set<string>> {
-  const { data, error } = await supabaseAdmin.from('departments').select('code');
+async function codesInUse(companyId: string): Promise<Set<string>> {
+  const { data, error } = await supabaseAdmin.from('departments').select('code').eq('company_id', companyId);
   if (error) throw error;
   return new Set((data ?? []).map((r) => r.code as string));
 }
 
-export async function generateUniqueDepartmentCode(displayName: string): Promise<string> {
+export async function generateUniqueDepartmentCode(displayName: string, companyId: string): Promise<string> {
   const base = slugifyDepartmentCode(displayName);
-  const used = await codesInUse();
+  const used = await codesInUse(companyId);
   if (!used.has(base)) return base;
   for (let n = 2; n < 1000; n += 1) {
     const candidate = `${base}_${n}`;
@@ -48,17 +61,24 @@ export async function generateUniqueDepartmentCode(displayName: string): Promise
   throw new AppError('Could not allocate a unique department code', 500);
 }
 
-export async function listDepartmentsWithCounts(): Promise<DepartmentWithCounts[]> {
+export async function listDepartmentsWithCounts(companyId: string): Promise<DepartmentWithCounts[]> {
   const { data: depts, error: dErr } = await supabaseAdmin
     .from('departments')
     .select('code, display_name')
+    .eq('company_id', companyId)
     .order('display_name', { ascending: true });
   if (dErr) throw dErr;
 
-  const { data: users, error: uErr } = await supabaseAdmin.from('users').select('department');
+  const { data: users, error: uErr } = await supabaseAdmin
+    .from('users')
+    .select('department')
+    .eq('company_id', companyId);
   if (uErr) throw uErr;
 
-  const { data: projects, error: pErr } = await supabaseAdmin.from('projects').select('department_id');
+  const { data: projects, error: pErr } = await supabaseAdmin
+    .from('projects')
+    .select('department_id')
+    .eq('company_id', companyId);
   if (pErr) throw pErr;
 
   const empByDept = new Map<string, number>();
@@ -81,8 +101,8 @@ export async function listDepartmentsWithCounts(): Promise<DepartmentWithCounts[
   }));
 }
 
-async function displayNameTaken(name: string, exceptCode?: string): Promise<boolean> {
-  const { data, error } = await supabaseAdmin.from('departments').select('code, display_name');
+async function displayNameTaken(name: string, companyId: string, exceptCode?: string): Promise<boolean> {
+  const { data, error } = await supabaseAdmin.from('departments').select('code, display_name').eq('company_id', companyId);
   if (error) throw error;
   const lower = name.toLowerCase();
   return (data ?? []).some(
@@ -91,14 +111,14 @@ async function displayNameTaken(name: string, exceptCode?: string): Promise<bool
   );
 }
 
-export async function createDepartment(displayName: string): Promise<DepartmentWithCounts> {
+export async function createDepartment(displayName: string, companyId: string): Promise<DepartmentWithCounts> {
   const name = normalizeDisplayName(displayName);
-  if (await displayNameTaken(name)) throw new AppError('A department with this name already exists', 409);
-  const code = await generateUniqueDepartmentCode(name);
+  if (await displayNameTaken(name, companyId)) throw new AppError('A department with this name already exists', 409);
+  const code = await generateUniqueDepartmentCode(name, companyId);
 
   const { data, error } = await supabaseAdmin
     .from('departments')
-    .insert({ code, display_name: name })
+    .insert({ code, display_name: name, company_id: companyId })
     .select('code, display_name')
     .single();
   if (error) {
@@ -113,22 +133,28 @@ export async function createDepartment(displayName: string): Promise<DepartmentW
   };
 }
 
-export async function updateDepartmentDisplayName(code: string, displayName: string): Promise<DepartmentRow> {
+export async function updateDepartmentDisplayName(
+  code: string,
+  displayName: string,
+  companyId: string,
+): Promise<DepartmentRow> {
   const name = normalizeDisplayName(displayName);
 
   const { data: row, error: findErr } = await supabaseAdmin
     .from('departments')
     .select('code')
+    .eq('company_id', companyId)
     .eq('code', code)
     .maybeSingle();
   if (findErr) throw findErr;
   if (!row) throw new AppError('Department not found', 404);
 
-  if (await displayNameTaken(name, code)) throw new AppError('A department with this name already exists', 409);
+  if (await displayNameTaken(name, companyId, code)) throw new AppError('A department with this name already exists', 409);
 
   const { data, error } = await supabaseAdmin
     .from('departments')
     .update({ display_name: name })
+    .eq('company_id', companyId)
     .eq('code', code)
     .select('code, display_name')
     .single();
@@ -139,10 +165,11 @@ export async function updateDepartmentDisplayName(code: string, displayName: str
   return { code: data!.code as string, display_name: data!.display_name as string };
 }
 
-export async function deleteDepartmentIfEmpty(code: string): Promise<void> {
+export async function deleteDepartmentIfEmpty(code: string, companyId: string): Promise<void> {
   const { data: row, error: findErr } = await supabaseAdmin
     .from('departments')
     .select('code')
+    .eq('company_id', companyId)
     .eq('code', code)
     .maybeSingle();
   if (findErr) throw findErr;
@@ -151,6 +178,7 @@ export async function deleteDepartmentIfEmpty(code: string): Promise<void> {
   const { count: empCount, error: eErr } = await supabaseAdmin
     .from('users')
     .select('*', { count: 'exact', head: true })
+    .eq('company_id', companyId)
     .eq('department', code);
   if (eErr) throw eErr;
 
@@ -164,6 +192,7 @@ export async function deleteDepartmentIfEmpty(code: string): Promise<void> {
   const { count: projCount, error: pErr } = await supabaseAdmin
     .from('projects')
     .select('*', { count: 'exact', head: true })
+    .eq('company_id', companyId)
     .eq('department_id', code);
   if (pErr) throw pErr;
 
@@ -174,6 +203,24 @@ export async function deleteDepartmentIfEmpty(code: string): Promise<void> {
     });
   }
 
-  const { error: delErr } = await supabaseAdmin.from('departments').delete().eq('code', code);
+  const { error: delErr } = await supabaseAdmin.from('departments').delete().eq('company_id', companyId).eq('code', code);
   if (delErr) throw delErr;
+}
+
+/** Seed default departments for a new tenant (idempotent per company). */
+export async function seedDefaultDepartmentsForCompany(companyId: string): Promise<void> {
+  const defaults: { code: string; display_name: string }[] = [
+    { code: 'finance', display_name: 'Finance' },
+    { code: 'hr', display_name: 'HR' },
+    { code: 'operations', display_name: 'Operations' },
+    { code: 'procurement', display_name: 'Procurement' },
+  ];
+  for (const d of defaults) {
+    const { error } = await supabaseAdmin.from('departments').insert({
+      company_id: companyId,
+      code: d.code,
+      display_name: d.display_name,
+    });
+    if (error && error.code !== '23505') throw error;
+  }
 }

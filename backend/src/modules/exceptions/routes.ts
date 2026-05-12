@@ -3,6 +3,7 @@ import { requireAuth } from '../../middleware/auth';
 import { requireRole } from '../../middleware/rbac';
 import { z } from 'zod';
 import { decideException, listPendingExceptionsForActor } from './service';
+import { companyScopeForRequest } from '../../tenant/requestCompanyId';
 import { requirePermission } from '../../middleware/permissions';
 
 export const exceptionsRouter = Router();
@@ -10,11 +11,12 @@ export const exceptionsRouter = Router();
 exceptionsRouter.use(requireAuth);
 exceptionsRouter.use(requirePermission('manage_exceptions'));
 
-exceptionsRouter.get('/', requireRole('admin', 'pm', 'dept_head'), async (req, res, next) => {
+exceptionsRouter.get('/', requireRole('admin', 'pm', 'dept_head', 'platform_admin'), async (req, res, next) => {
   try {
     const exceptions = await listPendingExceptionsForActor({
       actorRole: req.auth!.role,
       actorDepartment: req.auth!.department ?? null,
+      companyId: companyScopeForRequest(req),
     });
     res.json({ exceptions });
   } catch (err) {
@@ -26,7 +28,7 @@ const ExceptionActionSchema = z.object({
   reason: z.string().max(2000).optional(),
 });
 
-exceptionsRouter.post('/:id/approve', requireRole('admin', 'pm', 'dept_head'), async (req, res, next) => {
+exceptionsRouter.post('/:id/approve', requireRole('admin', 'pm', 'dept_head', 'platform_admin'), async (req, res, next) => {
   try {
     const exceptionId = req.params.id as string;
     ExceptionActionSchema.parse(req.body ?? {});
@@ -36,6 +38,7 @@ exceptionsRouter.post('/:id/approve', requireRole('admin', 'pm', 'dept_head'), a
       actorUserId: req.auth!.userId,
       actorRole: req.auth!.role,
       actorDepartment: req.auth!.department ?? null,
+      companyId: companyScopeForRequest(req),
     });
     res.json({ ok: true, result });
   } catch (err) {
@@ -43,7 +46,7 @@ exceptionsRouter.post('/:id/approve', requireRole('admin', 'pm', 'dept_head'), a
   }
 });
 
-exceptionsRouter.post('/:id/reject', requireRole('admin', 'pm', 'dept_head'), async (req, res, next) => {
+exceptionsRouter.post('/:id/reject', requireRole('admin', 'pm', 'dept_head', 'platform_admin'), async (req, res, next) => {
   try {
     const exceptionId = req.params.id as string;
     ExceptionActionSchema.parse(req.body ?? {});
@@ -53,6 +56,7 @@ exceptionsRouter.post('/:id/reject', requireRole('admin', 'pm', 'dept_head'), as
       actorUserId: req.auth!.userId,
       actorRole: req.auth!.role,
       actorDepartment: req.auth!.department ?? null,
+      companyId: companyScopeForRequest(req),
     });
     res.json({ ok: true, result });
   } catch (err) {

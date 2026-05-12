@@ -7,12 +7,18 @@ declare global {
       auth?: {
         userId: string;
         role: UserRole;
+        companyId: string;
+        /** Tenant for data queries; equals `companyId` unless `platform_admin` passes `?companyId=<uuid>`. */
+        scopedCompanyId: string;
+        companyName?: string | null;
+        companyLogoUrl?: string | null;
+        companyIsActive?: boolean;
         department?: string | null;
         name?: string | null;
         email?: string | null;
-        /** True for admin — omit department filters and skip department-only access checks. */
+        /** True for admin / platform_admin — omit department filters and skip department-only access checks. */
         orgWideAccess?: boolean;
-        /** Effective for non-admin users; admins bypass permission checks in middleware. */
+        /** Effective for non-admin users; admins and platform_admin bypass permission checks in middleware. */
         permissions?: AppPermission[];
       };
     }

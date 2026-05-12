@@ -1,43 +1,41 @@
-import React from 'react';
+'use client';
+
 import Link from 'next/link';
+import { motion } from 'framer-motion';
 import { BrandLogo } from './BrandLogo';
+import { ThemeToggle } from './ThemeToggle';
 import { APP_NAME } from '@/lib/appMeta';
 
 export default function Header() {
   return (
-    <header className="absolute top-0 left-0 w-full flex items-center justify-between px-8 py-6 z-10 text-slate-200">
+    <motion.header
+      initial={{ y: -14, opacity: 0 }}
+      animate={{ y: 0, opacity: 1 }}
+      transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+      className="absolute top-0 left-0 w-full flex items-center justify-between px-6 md:px-10 py-5 z-10 border-b border-stone-200/80 dark:border-stone-700/80 bg-[var(--surface)]/80 dark:bg-stone-900/75 backdrop-blur-md"
+    >
       <BrandLogo size="md">
-        <span className="font-bold tracking-tight text-sm">{APP_NAME}</span>
+        <span className="font-bold tracking-tight text-sm text-stone-900 dark:text-stone-50">{APP_NAME}</span>
       </BrandLogo>
-      
-      <nav className="hidden md:flex items-center gap-8 text-xs font-semibold tracking-wider text-slate-400">
-        <Link href="/" className="hover:text-white transition-colors">HOME</Link>
-        <Link href="#" className="hover:text-white transition-colors">ABOUT US</Link>
-        <Link href="#" className="hover:text-white transition-colors">CONTACT US</Link>
-        <Link href="#" className="hover:text-white transition-colors">FAQ</Link>
+
+      <nav className="hidden md:flex items-center gap-8 text-xs font-semibold tracking-wide text-stone-500 dark:text-stone-400">
+        <Link href="/" className="hover:text-orange-600 dark:hover:text-orange-400 transition-colors">
+          HOME
+        </Link>
+        <Link href="/login" className="hover:text-orange-600 dark:hover:text-orange-400 transition-colors">
+          SIGN IN
+        </Link>
       </nav>
 
-      <div className="flex items-center gap-4">
-        <button className="w-9 h-9 rounded-full border border-slate-800 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm hover:bg-slate-800 transition-colors">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400">
-            <circle cx="12" cy="12" r="4"></circle>
-            <path d="M12 2v2"></path>
-            <path d="M12 20v2"></path>
-            <path d="m4.93 4.93 1.41 1.41"></path>
-            <path d="m17.66 17.66 1.41 1.41"></path>
-            <path d="M2 12h2"></path>
-            <path d="M20 12h2"></path>
-            <path d="m6.34 17.66-1.41 1.41"></path>
-            <path d="m19.07 4.93-1.41 1.41"></path>
-          </svg>
-        </button>
-        <Link 
-          href="/login" 
-          className="px-6 py-2 text-xs font-bold tracking-wider rounded border border-slate-800 bg-slate-900/50 hover:bg-slate-800 transition-colors backdrop-blur-sm"
+      <div className="flex items-center gap-3">
+        <ThemeToggle compact className="hidden sm:inline-flex" />
+        <Link
+          href="/login"
+          className="px-5 py-2 text-xs font-semibold tracking-wide rounded-xl border border-stone-200 dark:border-stone-600 bg-[var(--surface)] dark:bg-stone-800 text-stone-800 dark:text-stone-100 shadow-sm hover:border-orange-300 dark:hover:border-orange-500/40 hover:shadow-md hover:shadow-orange-500/10 transition-all"
         >
           SIGN IN
         </Link>
       </div>
-    </header>
+    </motion.header>
   );
 }

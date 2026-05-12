@@ -44,7 +44,34 @@ declare
   v_id uuid;
   v_email text;
   v_keeper uuid;
+  v_users_has_company_id boolean;
+  v_company_id uuid;
 begin
+  select exists (
+    select 1
+    from information_schema.columns c
+    where c.table_schema = 'public'
+      and c.table_name = 'users'
+      and c.column_name = 'company_id'
+  )
+  into v_users_has_company_id;
+
+  if v_users_has_company_id and to_regclass('public.companies') is not null then
+    select c.id
+    into v_company_id
+    from public.companies c
+    where c.name = 'Main Company'
+    limit 1;
+    if v_company_id is null then
+      select c.id into v_company_id from public.companies c order by c.created_at nulls last limit 1;
+    end if;
+  end if;
+
+  if v_users_has_company_id and v_company_id is null then
+    raise exception
+      'public.users has company_id but public.companies has no rows; insert or run multi-tenant migration first';
+  end if;
+
   select coalesce(
     (select id from public.users where lower(email) = lower('hammad.bakhtiar@hadir.ai') limit 1),
     (select id from public.users order by created_at nulls last, id limit 1)
@@ -189,9 +216,15 @@ begin
       )
       returning id into v_id;
     end if;
-    insert into public.users (id, name, email, role, department)
-    values (v_id, rec.full_name, v_email, rec.role::text, rec.department::text)
-    on conflict (email) do nothing;
+    if v_users_has_company_id then
+      insert into public.users (id, name, email, role, department, company_id)
+      values (v_id, rec.full_name, v_email, rec.role::text, rec.department::text, v_company_id)
+      on conflict (email) do nothing;
+    else
+      insert into public.users (id, name, email, role, department)
+      values (v_id, rec.full_name, v_email, rec.role::text, rec.department::text)
+      on conflict (email) do nothing;
+    end if;
   end loop;
 
   select coalesce(
