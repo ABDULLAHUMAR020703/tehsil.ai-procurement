@@ -700,8 +700,10 @@ begin
   end if;
 end $$;
 
-create unique index if not exists purchase_orders_po_line_sn_uidx on public.purchase_orders (po_line_sn)
-where po_line_sn is not null;
+drop index if exists purchase_orders_po_line_sn_uidx;
+create unique index if not exists purchase_orders_company_po_line_sn_uidx
+  on public.purchase_orders (company_id, po_line_sn)
+  where po_line_sn is not null and company_id is not null;
 
 create index if not exists purchase_orders_item_code_idx on public.purchase_orders (item_code);
 
@@ -1905,6 +1907,10 @@ set company_id = (select id from public.companies where name = 'Main Company' li
 where po.company_id is null;
 alter table public.purchase_orders alter column company_id set not null;
 create index if not exists purchase_orders_company_id_idx on public.purchase_orders (company_id);
+drop index if exists purchase_orders_po_line_sn_uidx;
+create unique index if not exists purchase_orders_company_po_line_sn_uidx
+  on public.purchase_orders (company_id, po_line_sn)
+  where po_line_sn is not null and company_id is not null;
 
 alter table public.projects add column if not exists company_id uuid references public.companies (id);
 update public.projects p

@@ -21,6 +21,7 @@ type UploadResult = {
   failed?: number;
   skipped?: number;
   duplicatesHandled?: string[];
+  failures?: string[];
 };
 
 export default function PoUploadPage() {
@@ -57,8 +58,11 @@ export default function PoUploadPage() {
         headers: { Authorization: `Bearer ${bearer}` },
         body: fd,
       });
-      const json = (await res.json().catch(() => ({}))) as UploadResult & { message?: string };
-      if (!res.ok) throw new Error(json.message ?? 'Upload failed');
+      const json = (await res.json().catch(() => ({}))) as UploadResult & { message?: string; failures?: string[] };
+      if (!res.ok) {
+        const details = Array.isArray(json.failures) && json.failures.length > 0 ? `\n${json.failures.join('\n')}` : '';
+        throw new Error(`${json.message ?? 'Upload failed'}${details}`);
+      }
       setResult(json);
       await queryClient.invalidateQueries({ queryKey: ['po'] });
       await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
@@ -70,7 +74,7 @@ export default function PoUploadPage() {
   };
 
   const role = profile?.role;
-  const canUpload = role === 'admin' || role === 'pm' || role === 'dept_head';
+  const canUpload = role === 'admin' || role === 'platform_admin' || role === 'pm' || role === 'dept_head';
 
   return (
     <AppLayout>
@@ -102,7 +106,9 @@ export default function PoUploadPage() {
               </Button>
 
               {error ? (
-                <div className="text-sm text-rose-600 dark:text-rose-400">{error}</div>
+                <pre className="whitespace-pre-wrap rounded-lg border border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/35 p-3 text-sm text-rose-700 dark:text-rose-300 font-sans">
+                  {error}
+                </pre>
               ) : null}
 
               {result?.ok ? (
@@ -120,6 +126,11 @@ export default function PoUploadPage() {
                   {result.mode === 'legacy_vendor' && result.duplicatesHandled && result.duplicatesHandled.length > 0 ? (
                     <div className="text-xs text-emerald-800/90 dark:text-emerald-300/90">
                       Vendors merged: {result.duplicatesHandled.join(', ')}
+                    </div>
+                  ) : null}
+                  {result.failures && result.failures.length > 0 ? (
+                    <div className="rounded-lg border border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 p-3 text-xs text-amber-900 dark:text-amber-200">
+                      {result.failures.join('\n')}
                     </div>
                   ) : null}
                 </Card>

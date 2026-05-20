@@ -119,8 +119,9 @@ async function handleLineItemUpload(params: {
   totalRows: number;
   inserted: number;
   updated: number;
-  failed: number;
-  firstEntityId: string | null;
+      failed: number;
+      firstEntityId: string | null;
+      failures: string[];
 }> {
   const { rows, actorUserId, actorRole, actorDepartment, companyId } = params;
   const enforceDept = isDeptManagerRole(actorRole) ? actorDepartment : null;
@@ -129,8 +130,9 @@ async function handleLineItemUpload(params: {
   let updated = 0;
   let failed = 0;
   let firstEntityId: string | null = null;
+  const failures: string[] = [];
 
-  for (const row of rows) {
+  for (const [index, row] of rows.entries()) {
     try {
       const { data: existing, error: findErr } = await supabaseAdmin
         .from('purchase_orders')
@@ -166,16 +168,20 @@ async function handleLineItemUpload(params: {
         inserted += 1;
         if (ins?.id && !firstEntityId) firstEntityId = ins.id as string;
       }
-    } catch {
+    } catch (err) {
       failed += 1;
+      const message = err instanceof Error ? err.message : 'Unknown row error';
+      failures.push(`row ${index + 2} (${row.po_line_sn || row.po || 'unknown'}): ${message}`);
     }
   }
 
   if (inserted === 0 && updated === 0 && failed === rows.length) {
-    throw new AppError('All PO rows failed to save. Check data types and constraints.', 400);
+    throw new AppError('All PO rows failed to save. Check data types and constraints.', 400, {
+      failures: failures.slice(0, 10),
+    });
   }
 
-  return { totalRows: rows.length, inserted, updated, failed, firstEntityId };
+  return { totalRows: rows.length, inserted, updated, failed, firstEntityId, failures: failures.slice(0, 10) };
 }
 
 poRouter.post('/upload', requireRole('admin', 'platform_admin', 'pm', 'dept_head'), upload.single('file'), async (req, res, next) => {
@@ -248,6 +254,7 @@ poRouter.post('/upload', requireRole('admin', 'platform_admin', 'pm', 'dept_head
         inserted: result.inserted,
         updated: result.updated,
         failed: result.failed,
+        failures: result.failures,
       });
     }
 

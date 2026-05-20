@@ -50,7 +50,12 @@ export function detectPoFileFormat(sample: Record<string, unknown> | null | unde
 function parseMoney(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value !== 'string') throw new AppError('Numeric field must be a number or string', 400);
-  const normalized = value.replace(/,/g, '').trim();
+  const trimmed = value.trim();
+  const normalized = trimmed
+    .replace(/,/g, '')
+    .replace(/[₨$£€]/g, '')
+    .replace(/\s+/g, '')
+    .replace(/^\((.*)\)$/, '-$1');
   const num = Number(normalized);
   if (!Number.isFinite(num)) throw new AppError(`Invalid number: ${value}`, 400);
   return num;
@@ -58,6 +63,10 @@ function parseMoney(value: unknown): number {
 
 function parseOptionalMoney(value: unknown): number | undefined {
   if (value === null || value === undefined || value === '') return undefined;
+  if (typeof value === 'string') {
+    const normalized = value.trim().replace(/\s+/g, '');
+    if (!normalized || /^[-–—]+$/.test(normalized)) return undefined;
+  }
   return parseMoney(value);
 }
 
