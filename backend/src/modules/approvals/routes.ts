@@ -24,7 +24,7 @@ const OverrideSchema = z.object({
   reason: z.string().min(1).max(2000),
 });
 
-approvalsRouter.get('/', requirePermission('view_approvals'), requireRole('admin', 'pm', 'dept_head', 'employee'), async (req, res, next) => {
+approvalsRouter.get('/', requirePermission('view_approvals'), requireRole('admin', 'platform_admin', 'pm', 'dept_head', 'employee'), async (req, res, next) => {
   try {
     const userId = req.auth!.userId;
     const role = req.auth!.role;
@@ -95,6 +95,29 @@ approvalsRouter.get('/', requirePermission('view_approvals'), requireRole('admin
   }
 });
 
+approvalsRouter.get('/by-requests', requirePermission('view_approvals'), requireRole('admin', 'platform_admin', 'pm', 'dept_head', 'employee'), async (req, res, next) => {
+  try {
+    const idsRaw = req.query.ids as string;
+    if (!idsRaw) return res.json({ approvals: [] });
+    
+    const ids = idsRaw.split(',').filter(id => z.string().uuid().safeParse(id).success);
+    if (ids.length === 0) return res.json({ approvals: [] });
+    
+    const cid = companyScopeForRequest(req);
+    
+    const { data: rows, error } = await supabaseAdmin
+      .from('approvals')
+      .select('id, request_id, approver_id, role, status, comments, created_at, is_admin_override')
+      .eq('company_id', cid)
+      .in('request_id', ids);
+      
+    if (error) throw error;
+    res.json({ approvals: rows ?? [] });
+  } catch (err) {
+    next(err);
+  }
+});
+
 approvalsRouter.post(
   '/override',
   requireRole('admin', 'platform_admin'),
@@ -118,7 +141,7 @@ approvalsRouter.post(
 approvalsRouter.post(
   '/:id/decision',
   requirePermission('approve_requests'),
-  requireRole('admin', 'pm', 'dept_head', 'employee'),
+  requireRole('admin', 'platform_admin', 'pm', 'dept_head', 'employee'),
   async (req, res, next) => {
     try {
       const approvalId = req.params.id as string;

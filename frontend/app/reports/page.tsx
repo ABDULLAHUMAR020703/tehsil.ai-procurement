@@ -147,7 +147,8 @@ function openBulkPrPrint(ids: string[]) {
 }
 
 function rowCreatedDateInRange(iso: string, from: string, to: string): boolean {
-  const day = iso.slice(0, 10);
+  const t = new Date(iso);
+  const day = t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0');
   if (from && day < from) return false;
   if (to && day > to) return false;
   return true;
@@ -336,12 +337,16 @@ export default function ReportsPage() {
     queryKey: ['approvals', 'admin-pr-force-map', prListIds.join(',')],
     enabled: isAdmin && !!supabase && prListIds.length > 0,
     queryFn: async () => {
-      const { data, error } = await supabase!
-        .from('approvals')
-        .select('id, request_id, role, status')
-        .in('request_id', prListIds);
-      if (error) throw error;
-      return (data ?? []) as { id: string; request_id: string; role: string; status: string }[];
+      try {
+        const res = await authedFetchWithSupabase<{ approvals: { id: string; request_id: string; role: string; status: string }[] }>(
+          supabase,
+          '/api/approvals/by-requests?ids=' + prListIds.join(',')
+        );
+        return res.approvals ?? [];
+      } catch (e) {
+        if (e instanceof NoSessionError) router.replace('/login');
+        throw e;
+      }
     },
   });
 
@@ -396,16 +401,13 @@ export default function ReportsPage() {
     if (!supabase || items.length === 0) return;
     setProjectDeleteBusy(true);
     setProjectDeleteError(null);
+    const removed = new Set<string>();
     try {
       for (const it of items) {
         await authedFetchWithSupabaseNoContent(supabase, `/api/projects/${it.id}`, { method: 'DELETE' });
+        removed.add(it.id);
       }
       setProjectDeleteQueue(null);
-      const removed = new Set(items.map((i) => i.id));
-      setSelectedProjectIds((prev) => prev.filter((id) => !removed.has(id)));
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      queryClient.invalidateQueries({ queryKey: ['purchase-requests'] });
     } catch (e) {
       if (e instanceof NoSessionError) router.replace('/login');
       else
@@ -413,6 +415,10 @@ export default function ReportsPage() {
           e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Delete failed',
         );
     } finally {
+      setSelectedProjectIds((prev) => prev.filter((id) => !removed.has(id)));
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['purchase-requests'] });
       setProjectDeleteBusy(false);
     }
   };
@@ -421,21 +427,23 @@ export default function ReportsPage() {
     if (!supabase || ids.length === 0) return;
     setPrDeleteBusy(true);
     setPrDeleteError(null);
+    const removed = new Set<string>();
     try {
       for (const id of ids) {
         await authedFetchWithSupabaseNoContent(supabase, `/api/purchase-requests/${id}`, { method: 'DELETE' });
+        removed.add(id);
       }
       setPrDeleteQueue(null);
-      setSelectedPrIds((prev) => prev.filter((id) => !ids.includes(id)));
-      queryClient.invalidateQueries({ queryKey: ['purchase-requests'] });
-      queryClient.invalidateQueries({ queryKey: ['approvals'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
     } catch (e) {
       if (e instanceof NoSessionError) router.replace('/login');
       else
         setPrDeleteError(e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Delete failed');
     } finally {
+      setSelectedPrIds((prev) => prev.filter((id) => !removed.has(id)));
+      queryClient.invalidateQueries({ queryKey: ['purchase-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['approvals'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
       setPrDeleteBusy(false);
     }
   };

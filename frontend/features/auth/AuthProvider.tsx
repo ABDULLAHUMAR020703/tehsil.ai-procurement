@@ -63,7 +63,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const supabaseConfigError = useMemo(() => getSupabaseBrowserConfigError(), []);
   const supabase = useMemo(() => getBrowserSupabase(), []);
 
-  const refreshProfile = async () => {
+  const refreshProfile = React.useCallback(async () => {
     if (!supabase) {
       setProfile(null);
       return;
@@ -78,10 +78,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15000);
     const res = await fetch(`${backendBase}/api/auth/me`, {
       headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) throw new Error('Failed to fetch profile from backend');
+      signal: controller.signal,
+    }).finally(() => window.clearTimeout(timeout));
+    
+    if (!res.ok) {
+      if (res.status === 401 || res.status === 403) {
+        await supabase.auth.signOut();
+        setSession(null);
+        setProfile(null);
+        return;
+      }
+      throw new Error('Failed to fetch profile from backend');
+    }
     const json = (await res.json()) as {
       user: {
         userId: string;
@@ -125,7 +137,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isPlatformAdmin: json.user.role === 'platform_admin',
       permissions,
     });
-  };
+  }, [supabase]);
 
   useEffect(() => {
     if (!supabase) {
@@ -140,15 +152,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { data } = await supabase.auth.getSession();
       if (!mounted) return;
       setSession(data.session);
-      setLoading(false);
+      if (!data.session) setLoading(false);
     })();
 
     const { data: sub } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      setLoading(Boolean(nextSession));
       setSession(nextSession);
       if (event === 'SIGNED_IN') {
         void queryClient.invalidateQueries();
       }
       if (event === 'SIGNED_OUT') {
+        setProfile(null);
+        setLoading(false);
         queryClient.clear();
       }
     });
@@ -162,11 +177,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!accessToken) {
       setProfile(null);
+      setLoading(false);
       return;
     }
-    refreshProfile().catch(() => {
-      setProfile(null);
-    });
+    setLoading(true);
+    refreshProfile()
+      .catch(() => {
+        setProfile(null);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accessToken]);
 
@@ -207,8 +228,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
       refreshProfile,
     }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [supabase, supabaseConfigError, session, profile, loading, accessToken, queryClient],
+    [supabase, supabaseConfigError, session, profile, loading, accessToken, queryClient, refreshProfile],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

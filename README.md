@@ -118,6 +118,9 @@ This protects the business rule: spending should either be tied to a **loaded PO
 | Purchase requests | `backend/src/modules/purchaseRequests/` |
 | Approval sequence & decisions | `backend/src/modules/approvals/engine.ts` |
 | Dashboard counts | `backend/src/modules/dashboard/routes.ts` |
+| Supabase migration | `backend/supabase/migrations/20260520_consolidated_production_hardening.sql` |
+| Sample PO upload files | `docs/samples/` |
+| Product / workflow docs | `docs/` |
 
 ---
 

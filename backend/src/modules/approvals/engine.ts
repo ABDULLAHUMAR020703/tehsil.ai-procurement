@@ -57,7 +57,8 @@ export async function startApprovalsForPurchaseRequest(prId: string, triggeredBy
   }));
 
   const { error: insErr } = await supabaseAdmin.from('approvals').upsert(approvalsToInsert, {
-    onConflict: 'request_id,role',
+    onConflict: 'request_id,company_id,role',
+    ignoreDuplicates: true,
   });
   if (insErr) throw insErr;
 
@@ -209,18 +210,21 @@ async function performAdminForceApprove(params: {
   const mergedComments =
     [duplicatePrefix, userPart, 'Administrator force-approved pending stages.'].filter(Boolean).join('\n\n') || null;
 
+  let rpcResult: Record<string, unknown> = {};
+  try {
+    const { data, error } = await supabaseAdmin.rpc('admin_force_approve_pr', {
+      p_request_id: pr.id,
+      p_company_id: companyId,
+      p_actor_id: actorUserId,
+      p_comments: mergedComments
+    });
+    if (error) throw mapFinalizePrRpcError(error);
+    rpcResult = data as Record<string, unknown>;
+  } catch (e) {
+    throw e;
+  }
+
   if (pendingIds.length > 0) {
-    const { error: upErr } = await supabaseAdmin
-      .from('approvals')
-      .update({
-        status: 'approved',
-        comments: mergedComments,
-        updated_by: actorUserId,
-        is_admin_override: true,
-      })
-      .eq('company_id', companyId)
-      .in('id', pendingIds);
-    if (upErr) throw upErr;
     await writeApprovalAuditLogs({
       approvalIds: pendingIds,
       action: 'approved',
@@ -228,20 +232,6 @@ async function performAdminForceApprove(params: {
       reason: 'admin_force_approve',
       departmentScope,
     });
-  }
-
-  let rpcResult: Record<string, unknown> = {};
-  try {
-    rpcResult = await finalizePrBudgetAfterApprovalRpc(pr.id, actorUserId);
-  } catch (e) {
-    if (pendingIds.length > 0) {
-      await supabaseAdmin
-        .from('approvals')
-        .update({ status: 'pending', is_admin_override: false, updated_by: actorUserId })
-        .eq('company_id', companyId)
-        .in('id', pendingIds);
-    }
-    throw e;
   }
 
   const { data: updatedApproval, error: selErr } = await supabaseAdmin
@@ -520,7 +510,7 @@ export async function decideApproval(params: {
       .eq('company_id', companyId);
     if (prRejErr) throw prRejErr;
 
-    await supabaseAdmin
+    const { error: cascadeUpdateErr } = await supabaseAdmin
       .from('approvals')
       .update({
         status: 'rejected',
@@ -530,6 +520,7 @@ export async function decideApproval(params: {
       .eq('request_id', pr.id)
       .eq('company_id', companyId)
       .eq('status', 'pending');
+    if (cascadeUpdateErr) throw cascadeUpdateErr;
 
     if (cascadeIds.length > 0) {
       await writeApprovalAuditLogs({
@@ -756,43 +747,31 @@ export async function adminOverridePurchaseRequest(params: {
       return { prId: updatedPr.id, status: updatedPr.status, reason };
     }
 
-    const { data: pendingApproveIds, error: pendApprErr } = await supabaseAdmin
+    const overrideComment = `Admin override approved. Reason: ${reason}`;
+
+    let rpcResult: Record<string, unknown> = {};
+    try {
+      const { data, error } = await supabaseAdmin.rpc('admin_force_approve_pr', {
+        p_request_id: pr.id,
+        p_company_id: companyId,
+        p_actor_id: actorUserId,
+        p_comments: overrideComment
+      });
+      if (error) throw mapFinalizePrRpcError(error);
+      rpcResult = data as Record<string, unknown>;
+    } catch (e) {
+      throw e;
+    }
+
+    // Audit logs for the pending approvals that were overridden
+    const { data: overriddenApprovals } = await supabaseAdmin
       .from('approvals')
       .select('id')
       .eq('request_id', pr.id)
       .eq('company_id', companyId)
-      .eq('status', 'pending');
-    if (pendApprErr) throw pendApprErr;
-    const approveIds = (pendingApproveIds ?? []).map((r) => r.id as string);
-
-    const overrideComment = `Admin override approved. Reason: ${reason}`;
-    if (approveIds.length > 0) {
-      const { error: approvalsSkipErr } = await supabaseAdmin
-        .from('approvals')
-        .update({
-          status: 'approved',
-          comments: overrideComment,
-          updated_by: actorUserId,
-          is_admin_override: true,
-        })
-        .eq('company_id', companyId)
-        .in('id', approveIds);
-      if (approvalsSkipErr) throw approvalsSkipErr;
-    }
-
-    let rpcResult: Record<string, unknown> = {};
-    try {
-      rpcResult = await finalizePrBudgetAfterApprovalRpc(pr.id, actorUserId);
-    } catch (e) {
-      if (approveIds.length > 0) {
-        await supabaseAdmin
-          .from('approvals')
-          .update({ status: 'pending', is_admin_override: false, updated_by: actorUserId })
-          .eq('company_id', companyId)
-          .in('id', approveIds);
-      }
-      throw e;
-    }
+      .eq('is_admin_override', true)
+      .eq('updated_by', actorUserId);
+    const approveIds = (overriddenApprovals ?? []).map((r) => r.id as string);
 
     if (approveIds.length > 0) {
       await writeApprovalAuditLogs({

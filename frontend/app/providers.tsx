@@ -5,16 +5,7 @@ import { Toaster } from 'sonner';
 import { AuthProvider } from '../features/auth/AuthProvider';
 import { ThemeProvider, useTheme } from '../features/theme/ThemeProvider';
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      refetchOnMount: true,
-      refetchOnWindowFocus: true,
-      refetchOnReconnect: true,
-      staleTime: 0,
-    },
-  },
-});
+import { useState } from 'react';
 
 function ThemedToaster() {
   const { resolved } = useTheme();
@@ -22,6 +13,17 @@ function ThemedToaster() {
 }
 
 export function Providers({ children }: { children: React.ReactNode }) {
+  const [queryClient] = useState(() => new QueryClient({
+    defaultOptions: {
+      queries: {
+        refetchOnMount: true,
+        refetchOnWindowFocus: true,
+        refetchOnReconnect: true,
+        staleTime: 60 * 1000,
+      },
+    },
+  }));
+
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>

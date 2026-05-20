@@ -31,7 +31,8 @@ export async function countPreviousPrsForSameItem(
     .select('*', { count: 'exact', head: true })
     .eq('company_id', companyId)
     .eq('created_by', userId)
-    .eq('item_code', itemCodeNorm);
+    .eq('item_code', itemCodeNorm)
+    .not('status', 'eq', 'rejected');
   if (error) throw error;
   return count ?? 0;
 }
@@ -244,6 +245,21 @@ export async function createPurchaseRequest(params: {
 
   let documentUrl: string | null = null;
   if (documentFile?.buffer) {
+    const ALLOWED_MIME_TYPES = [
+      'application/pdf',
+      'image/jpeg',
+      'image/png',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    ];
+    if (!ALLOWED_MIME_TYPES.includes(documentFile.mimeType)) {
+      throw new AppError('Invalid document file type. Only PDF, JPG, PNG, and DOC(X) are allowed.', 400);
+    }
+    const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+    if (documentFile.buffer.length > MAX_FILE_SIZE) {
+      throw new AppError('Document file is too large. Maximum size is 10MB.', 400);
+    }
+
     const bucket = env.SUPABASE_STORAGE_BUCKET_DOCUMENTS;
     const safeExt = documentFile.originalName.includes('.')
       ? documentFile.originalName.slice(documentFile.originalName.lastIndexOf('.'))
@@ -255,7 +271,7 @@ export async function createPurchaseRequest(params: {
       upsert: true,
     });
     if (upErr) throw upErr;
-    documentUrl = `${env.SUPABASE_URL}/storage/v1/object/public/${bucket}/${path}`;
+    documentUrl = path;
   }
 
   let duplicate_count = 1;
@@ -277,13 +293,15 @@ export async function createPurchaseRequest(params: {
     created_by: createdBy,
   };
 
-  // Within remaining: create PR and start approval workflow
+  // Within remaining: create PR and start approval workflow (guarded by Postgres RPC)
   const { data: pr, error: prInsErr } = await supabaseAdmin
-    .from('purchase_requests')
-    .insert({ ...prPayload, status: 'pending', updated_by: createdBy })
-    .select('id, status, amount, project_id, created_by')
-    .single();
-  if (prInsErr || !pr) throw prInsErr ?? new AppError('Failed to create purchase request', 500);
+    .rpc('create_purchase_request_guarded', { p_pr: prPayload });
+  if (prInsErr || !pr) {
+    if (prInsErr?.message?.includes('EXCEEDS_')) {
+      throw new AppError('Requested amount exceeds available budget (concurrent modification)', 400);
+    }
+    throw prInsErr ?? new AppError('Failed to create purchase request', 500);
+  }
 
   await recordTrackedAction({
     audit: {

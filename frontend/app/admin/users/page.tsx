@@ -12,7 +12,7 @@ import { Table, TBody, TD, TH, THead, TR, TableWrapper } from '../../../componen
 import { useAuth, type Department, type UserRole } from '../../../features/auth/AuthProvider';
 import { ApiError, authedFetchWithSupabase, NoSessionError } from '../../../lib/api';
 
-const ROLES: UserRole[] = ['admin', 'pm', 'dept_head', 'employee'];
+const ROLES: UserRole[] = ['platform_admin', 'admin', 'pm', 'dept_head', 'employee'];
 
 type DeptOption = { code: string; display_name: string };
 
@@ -33,7 +33,7 @@ export default function AdminUsersPage() {
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['admin', 'users'],
-    enabled: !!token && !!supabase && profile?.role === 'admin',
+    enabled: !!token && !!supabase && (profile?.role === 'admin' || profile?.role === 'platform_admin'),
     queryFn: async () => {
       try {
         return await authedFetchWithSupabase<{ users: UserRow[] }>(supabase, '/api/users');
@@ -46,7 +46,7 @@ export default function AdminUsersPage() {
 
   const { data: departmentsData } = useQuery({
     queryKey: ['departments'],
-    enabled: !!token && !!supabase && profile?.role === 'admin',
+    enabled: !!token && !!supabase && (profile?.role === 'admin' || profile?.role === 'platform_admin'),
     queryFn: async () => {
       try {
         return await authedFetchWithSupabase<{ departments: DeptOption[] }>(supabase!, '/api/departments');
@@ -84,7 +84,7 @@ export default function AdminUsersPage() {
 
   const [localEdits, setLocalEdits] = useState<Record<string, { role: UserRole; department: Department }>>({});
 
-  if (profile && profile.role !== 'admin') {
+  if (profile && profile.role !== 'admin' && profile.role !== 'platform_admin') {
     return (
       <AppLayout>
         <PageContainer className="space-y-4">
@@ -158,8 +158,8 @@ export default function AdminUsersPage() {
                         <TD>
                           <select
                             className="rounded-lg border border-stone-200 dark:border-stone-600 bg-[var(--surface)] dark:bg-stone-900 px-2 py-1 text-xs text-stone-900 dark:text-stone-100 capitalize outline-none focus:ring-2 focus:ring-orange-500/25 focus:border-orange-400 dark:focus:border-orange-500"
-                            value={edit.role === 'admin' ? 'management' : edit.department}
-                            disabled={edit.role === 'admin'}
+                            value={edit.department || ''}
+                            disabled={edit.role === 'admin' || edit.role === 'platform_admin'}
                             onChange={(e) =>
                               setLocalEdits((prev) => ({
                                 ...prev,
@@ -183,7 +183,7 @@ export default function AdminUsersPage() {
                             onClick={() => {
                               const payload: { id: string; role?: UserRole; department?: Department } = { id: u.id };
                               if (edit.role !== u.role) payload.role = edit.role;
-                              if (edit.role !== 'admin' && edit.department !== u.department) {
+                              if (edit.role !== 'admin' && edit.role !== 'platform_admin' && edit.department !== u.department) {
                                 payload.department = edit.department;
                               }
                               if (payload.role === undefined && payload.department === undefined) return;

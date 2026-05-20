@@ -14,6 +14,7 @@ import { recordTrackedAction } from '../auditLogs/trackedAction';
 import { getAdminUserIds } from '../notifications/service';
 import { attachLastUpdatedFields } from '../auditLogs/lastUpdated';
 import { getLastTransactionForPO } from './lastTransaction';
+import { getBatchLastTransactionForPOs } from './batchLastTransaction';
 import { bypassesDepartmentScope, isDeptManagerRole, type UserRole } from '../auth/types';
 import { requirePermission } from '../../middleware/permissions';
 import { companyScopeForRequest } from '../../tenant/requestCompanyId';
@@ -177,7 +178,7 @@ async function handleLineItemUpload(params: {
   return { totalRows: rows.length, inserted, updated, failed, firstEntityId };
 }
 
-poRouter.post('/upload', requireRole('admin', 'pm', 'dept_head'), upload.single('file'), async (req, res, next) => {
+poRouter.post('/upload', requireRole('admin', 'platform_admin', 'pm', 'dept_head'), upload.single('file'), async (req, res, next) => {
   try {
     const actorUserId = req.auth!.userId;
     const actorRole = req.auth!.role;
@@ -381,7 +382,7 @@ poRouter.post('/upload', requireRole('admin', 'pm', 'dept_head'), upload.single(
   }
 });
 
-poRouter.get('/search', requireRole('admin', 'pm', 'dept_head', 'employee'), async (req, res, next) => {
+poRouter.get('/search', requireRole('admin', 'platform_admin', 'pm', 'dept_head', 'employee'), async (req, res, next) => {
   try {
     const projectId = z.string().uuid().parse(req.query.project_id);
     const qRaw = req.query.q;
@@ -407,8 +408,9 @@ poRouter.get('/search', requireRole('admin', 'pm', 'dept_head', 'employee'), asy
   }
 });
 
-poRouter.get('/', requireRole('admin', 'pm', 'dept_head', 'employee'), async (req, res) => {
-  const actorRole = req.auth!.role;
+poRouter.get('/', requireRole('admin', 'platform_admin', 'pm', 'dept_head', 'employee'), async (req, res, next) => {
+  try {
+    const actorRole = req.auth!.role;
   const actorUserId = req.auth!.userId;
   const actorDepartment = req.auth!.department ?? null;
   const cid = companyScopeForRequest(req);
@@ -454,7 +456,10 @@ poRouter.get('/', requireRole('admin', 'pm', 'dept_head', 'employee'), async (re
     }
     const orParts = [`uploaded_by.eq.${actorUserId}`];
     if (actorDepartment) orParts.push(`department.eq.${actorDepartment}`);
-    if (fromProjects.length) orParts.push(`id.in.(${fromProjects.join(',')})`);
+    if (fromProjects.length) {
+      const safeUUIDs = fromProjects.filter(id => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id));
+      if (safeUUIDs.length) orParts.push(`id.in.(${safeUUIDs.join(',')})`);
+    }
     q = q.or(orParts.join(','));
   }
 
@@ -485,19 +490,20 @@ poRouter.get('/', requireRole('admin', 'pm', 'dept_head', 'employee'), async (re
     };
   });
 
-  const withLastTx = await Promise.all(
-    withGroupLastUpdated.map(async (g) => {
-      const bundle = await getLastTransactionForPO(g.anchor_po_line_id);
-      return {
-        ...g,
-        po_last_transaction: {
-          po_id: bundle.po_id,
-          po_number: bundle.po_number ?? g.po,
-          last_transaction: bundle.last_transaction,
-        },
-      };
-    }),
-  );
+  const anchorIds = withGroupLastUpdated.map(g => g.anchor_po_line_id);
+  const bundleMap = await getBatchLastTransactionForPOs(anchorIds, cid);
+  
+  const withLastTx = withGroupLastUpdated.map(g => {
+    const bundle = bundleMap.get(g.anchor_po_line_id);
+    return {
+      ...g,
+      po_last_transaction: bundle ?? {
+        po_id: g.anchor_po_line_id,
+        po_number: g.po,
+        last_transaction: null,
+      },
+    };
+  });
 
   withLastTx.sort((a, b) => {
     const ta = a.po_last_transaction.last_transaction?.timestamp ?? '';
@@ -506,5 +512,8 @@ poRouter.get('/', requireRole('admin', 'pm', 'dept_head', 'employee'), async (re
     return String(b.updated_at ?? '').localeCompare(String(a.updated_at ?? ''));
   });
 
-  res.json({ purchaseOrders: withLastTx });
+    res.json({ purchaseOrders: withLastTx });
+  } catch (err) {
+    next(err);
+  }
 });

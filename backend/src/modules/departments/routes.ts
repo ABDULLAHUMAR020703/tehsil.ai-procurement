@@ -34,7 +34,7 @@ departmentsRouter.get('/', async (req, res, next) => {
   }
 });
 
-departmentsRouter.post('/', requireRole('admin'), async (req, res, next) => {
+departmentsRouter.post('/', requireRole('admin', 'platform_admin'), async (req, res, next) => {
   try {
     const parsed = PostBody.parse(req.body ?? {});
     const companyId = companyScopeForRequest(req);
@@ -45,7 +45,7 @@ departmentsRouter.post('/', requireRole('admin'), async (req, res, next) => {
   }
 });
 
-departmentsRouter.patch('/:code', requireRole('admin'), async (req, res, next) => {
+departmentsRouter.patch('/:code', requireRole('admin', 'platform_admin'), async (req, res, next) => {
   try {
     const code = DepartmentCodeParam.parse(req.params.code);
     const parsed = PatchBody.parse(req.body ?? {});
@@ -57,7 +57,7 @@ departmentsRouter.patch('/:code', requireRole('admin'), async (req, res, next) =
   }
 });
 
-departmentsRouter.delete('/:code', requireRole('admin'), async (req, res, next) => {
+departmentsRouter.delete('/:code', requireRole('admin', 'platform_admin'), async (req, res, next) => {
   try {
     const code = DepartmentCodeParam.parse(req.params.code);
     const companyId = companyScopeForRequest(req);

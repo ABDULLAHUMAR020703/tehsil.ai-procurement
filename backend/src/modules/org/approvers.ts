@@ -12,17 +12,10 @@ export async function resolvePmUserIdForDepartment(department: string, companyId
     .eq('company_id', companyId)
     .limit(1);
   if (error) throw error;
-  if (data && data.length > 0) return data[0].id;
-
-  const { data: fallback, error: fbErr } = await supabaseAdmin
-    .from('users')
-    .select('id')
-    .eq('role', 'pm')
-    .eq('company_id', companyId)
-    .limit(1);
-  if (fbErr) throw fbErr;
-  if (!fallback || fallback.length === 0) throw new AppError(`No PM found for department=${department}`, 500);
-  return fallback[0].id;
+  if (!data || data.length === 0) {
+    throw new AppError(`No PM found for department=${department}`, 500);
+  }
+  return data[0].id;
 }
 
 /**

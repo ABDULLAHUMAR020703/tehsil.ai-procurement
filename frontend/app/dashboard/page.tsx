@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -121,10 +121,10 @@ function lastActivityStyles(activityType: string) {
   if (t.includes('budget applied') || (t.includes('approved') && !t.includes('exception'))) {
     return {
       badge:
-        'border border-orange-200 dark:border-orange-700 bg-orange-50 dark:bg-orange-950/45 text-orange-950 dark:text-orange-100',
-      money: 'text-orange-950 dark:text-orange-100',
+        'border border-emerald-200 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/45 text-emerald-900 dark:text-emerald-200',
+      money: 'text-emerald-900 dark:text-emerald-200',
       panel:
-        'border-orange-200/90 dark:border-orange-800/60 bg-white dark:bg-stone-900/85',
+        'border-emerald-200/90 dark:border-emerald-800/60 bg-white dark:bg-stone-900/85',
     };
   }
   return {
@@ -155,7 +155,7 @@ function entityDetailHref(entityType: string, entityId: string): string | null {
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { profile, accessToken, session, supabase } = useAuth();
+  const { profile, accessToken, session, supabase, loading } = useAuth();
   const token = accessToken;
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState<'last_activity' | 'vendor' | 'total' | 'remaining'>('last_activity');
@@ -166,10 +166,14 @@ export default function DashboardPage() {
   const [activeDrillCard, setActiveDrillCard] = useState<DashboardDrillCard | null>(null);
   const pageSize = 8;
 
+  React.useEffect(() => {
+    if (!loading && !session) router.replace('/login');
+  }, [loading, session, router]);
+
   const isAdmin = profile?.role === 'admin';
 
   const { data, isLoading, isFetching, error } = useQuery({
-    queryKey: ['dashboard', isAdmin ? activityDeptFilter : 'dept-scoped'],
+    queryKey: ['dashboard', profile?.userId, isAdmin ? activityDeptFilter : 'dept-scoped'],
     enabled: !!token && !!supabase,
     queryFn: async () => {
       try {
@@ -201,7 +205,7 @@ export default function DashboardPage() {
     },
   });
   const { data: recentPrs } = useQuery({
-    queryKey: ['dashboard', 'recent-prs'],
+    queryKey: ['dashboard', 'recent-prs', profile?.userId],
     enabled: !!token && !!supabase && isAdmin,
     queryFn: async () => {
       try {
@@ -217,7 +221,7 @@ export default function DashboardPage() {
     },
   });
   const { data: poList } = useQuery({
-    queryKey: ['dashboard', 'po-overview'],
+    queryKey: ['dashboard', 'po-overview', profile?.userId],
     enabled: !!token && !!supabase,
     queryFn: async () => {
       try {
@@ -290,7 +294,17 @@ export default function DashboardPage() {
         ) : null}
 
         {isLoading ? (
-          <Card className="p-4 text-sm text-muted-foreground">Loading...</Card>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <Card className="h-32 animate-pulse border-stone-200/50 bg-stone-100/50 dark:bg-stone-800/50 dark:border-stone-700/50">
+              <span className="sr-only">Loading dashboard card</span>
+            </Card>
+            <Card className="h-32 animate-pulse border-stone-200/50 bg-stone-100/50 dark:bg-stone-800/50 dark:border-stone-700/50">
+              <span className="sr-only">Loading dashboard card</span>
+            </Card>
+            <Card className="h-32 animate-pulse border-stone-200/50 bg-stone-100/50 dark:bg-stone-800/50 dark:border-stone-700/50">
+              <span className="sr-only">Loading dashboard card</span>
+            </Card>
+          </div>
         ) : error ? (
           <Card className="p-4 text-sm text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800/70 bg-rose-50 dark:bg-rose-950/35">
             {error instanceof Error ? error.message : 'Failed to load dashboard'}

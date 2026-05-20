@@ -91,20 +91,25 @@ export default function ApprovalsPage() {
     queryKey: ['approvals', 'by-request', uniqueRequestIds.join(',')],
     enabled: !!token && !!supabase && uniqueRequestIds.length > 0,
     queryFn: async () => {
-      const { data: rows, error } = await supabase!
-        .from('approvals')
-        .select('id, request_id, approver_id, role, status, comments, created_at, is_admin_override')
-        .in('request_id', uniqueRequestIds);
-      if (error) throw error;
-      const grouped: Record<string, Approval[]> = {};
-      for (const row of (rows ?? []) as Approval[]) {
-        if (!grouped[row.request_id]) grouped[row.request_id] = [];
-        grouped[row.request_id].push(row);
+      try {
+        const res = await authedFetchWithSupabase<{ approvals: Approval[] }>(
+          supabase,
+          '/api/approvals/by-requests?ids=' + uniqueRequestIds.join(',')
+        );
+        const rows = res.approvals;
+        const grouped: Record<string, Approval[]> = {};
+        for (const row of (rows ?? [])) {
+          if (!grouped[row.request_id]) grouped[row.request_id] = [];
+          grouped[row.request_id].push(row);
+        }
+        for (const key of Object.keys(grouped)) {
+          grouped[key].sort((a, b) => sortApprovalStageIndex(a.role) - sortApprovalStageIndex(b.role));
+        }
+        return grouped;
+      } catch (e) {
+        if (e instanceof NoSessionError) router.replace('/login');
+        throw e;
       }
-      for (const key of Object.keys(grouped)) {
-        grouped[key].sort((a, b) => sortApprovalStageIndex(a.role) - sortApprovalStageIndex(b.role));
-      }
-      return grouped;
     },
   });
 
@@ -216,11 +221,6 @@ export default function ApprovalsPage() {
                   const currentStep = requiredChain.find((step) => step.status === 'pending');
                   const canDecide = a.status === 'pending' && !!currentStep && currentStep.id === a.id;
                   const prStatus = a.purchase_request?.status ?? '';
-                  const canForceApprove =
-                    isAdmin &&
-                    (prStatus === 'pending' || prStatus === 'pending_exception') &&
-                    requiredChain.some((s) => s.status === 'pending');
-                  const forceTargetId = requiredChain.find((s) => s.status === 'pending')?.id;
 
                   return (
                     <>
@@ -332,19 +332,6 @@ export default function ApprovalsPage() {
                             >
                               Override approval
                             </Button>
-                            <Button
-                              variant="success"
-                              type="button"
-                              disabled={!canForceApprove || !forceTargetId || decisionMutation.isPending}
-                              onClick={() => {
-                                if (forceTargetId) {
-                                  decisionMutation.mutate({ approvalId: forceTargetId, decision: 'approved' });
-                                }
-                              }}
-                              title="Approve all pending stages and finalize immediately (admin only)"
-                            >
-                              Force approve
-                            </Button>
                           </div>
                         ) : null}
                       </div>
@@ -385,14 +372,23 @@ export default function ApprovalsPage() {
             );
             })}
             {(data?.approvals ?? []).length === 0 ? (
-              <Card className="p-4 text-sm text-muted-foreground">No approvals found.</Card>
+              <div className="p-8 text-center bg-[var(--surface)] dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl">
+                <div className="text-stone-400 mb-2">✅</div>
+                <h3 className="text-sm font-medium text-stone-900 dark:text-stone-100">All caught up!</h3>
+                <p className="text-xs text-stone-500 mt-1">There are no pending approvals assigned to you.</p>
+              </div>
             ) : null}
           </div>
         )}
         {overrideTarget && isAdmin ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/45 dark:bg-stone-950/55 backdrop-blur-[2px] p-4">
+          <div 
+            className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/45 dark:bg-stone-950/55 backdrop-blur-[2px] p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="override-modal-title"
+          >
             <Card className="max-w-md w-full p-6 space-y-4 border-stone-200/90 dark:border-stone-600/70 shadow-xl">
-              <h3 className="text-lg font-medium">Override approval</h3>
+              <h3 id="override-modal-title" className="text-lg font-medium">Override approval</h3>
               <p className="text-sm text-muted-foreground">
                 Request: {overrideTarget}. A written reason is required for audit.
               </p>

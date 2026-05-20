@@ -2,8 +2,8 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useMemo } from 'react';
-import { Settings } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { Settings, Menu, X } from 'lucide-react';
 import { useAuth } from '../features/auth/AuthProvider';
 import { Button } from './ui/Button';
 import { cn } from '@/lib/ui';
@@ -80,9 +80,16 @@ function navItemAllowed(profile: UserProfile, item: NavItem): boolean {
 }
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
-  const { profile, signOut } = useAuth();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const { profile, signOut, loading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+
+  React.useEffect(() => {
+    if (!loading && !profile) {
+      router.replace('/login');
+    }
+  }, [loading, profile, router]);
 
   const { mainNav, platformNav } = useMemo(() => {
     if (!profile) return { mainNav: [] as NavItem[], platformNav: [] as NavItem[] };
@@ -101,10 +108,37 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         : 'border-transparent text-stone-600 dark:text-stone-400 hover:bg-stone-100/80 dark:hover:bg-stone-800/60 hover:text-stone-900 dark:hover:text-stone-100 hover:border-stone-200 dark:hover:border-stone-600',
     );
 
+  if (loading || !profile) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-stone-50 dark:bg-stone-950 text-stone-500">
+        <div className="animate-pulse">Loading workspace...</div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex text-stone-800 dark:text-stone-100 font-sans relative overflow-hidden bg-transparent">
       <InteractiveBackground />
-      <aside className="w-72 border-r border-stone-200/90 dark:border-stone-700/80 bg-[var(--surface)]/92 dark:bg-stone-900/90 backdrop-blur-md px-4 py-6 z-10 flex flex-col min-h-screen shadow-md shadow-stone-200/30 dark:shadow-stone-950/50">
+      
+      {/* Mobile Menu Toggle */}
+      <div className="md:hidden absolute top-4 right-4 z-50">
+        <Button variant="ghost" size="icon" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
+          {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+        </Button>
+      </div>
+
+      {/* Backdrop for mobile */}
+      {mobileMenuOpen && (
+        <div 
+          className="fixed inset-0 z-40 bg-stone-900/50 backdrop-blur-sm md:hidden"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
+
+      <aside className={cn(
+        "fixed md:static inset-y-0 left-0 z-50 w-72 border-r border-stone-200/90 dark:border-stone-700/80 bg-[var(--surface)]/92 dark:bg-stone-900/90 backdrop-blur-md px-4 py-6 flex flex-col min-h-screen shadow-md shadow-stone-200/30 dark:shadow-stone-950/50 transition-transform duration-300 ease-in-out md:translate-x-0",
+        mobileMenuOpen ? "translate-x-0" : "-translate-x-full"
+      )}>
         <div className="mb-6 px-3 shrink-0 flex items-start justify-between gap-2">
           <BrandLogo size="md">
             <div>
@@ -123,7 +157,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         <nav className="flex flex-col flex-1 min-h-0">
           <div className="flex-1 min-h-0 overflow-y-auto space-y-1.5 pr-1">
             {mainNav.map((i) => (
-              <Link key={i.href} href={i.href} className={linkClass(i.href, pathname === i.href)}>
+              <Link key={i.href} href={i.href} className={linkClass(i.href, pathname === i.href)} onClick={() => setMobileMenuOpen(false)}>
                 {i.label}
               </Link>
             ))}
@@ -132,7 +166,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 <div className="my-3 border-t border-stone-200 dark:border-stone-700" aria-hidden />
                 <div className="px-1 text-[10px] font-bold tracking-widest text-stone-400 uppercase mb-1">Platform</div>
                 {platformNav.map((i) => (
-                  <Link key={i.href} href={i.href} className={linkClass(i.href, pathname === i.href)}>
+                  <Link key={i.href} href={i.href} className={linkClass(i.href, pathname === i.href)} onClick={() => setMobileMenuOpen(false)}>
                     {i.label}
                   </Link>
                 ))}
@@ -145,6 +179,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               <div className="shrink-0 my-4 border-t border-stone-200 dark:border-stone-700" aria-hidden />
               <Link
                 href="/settings"
+                onClick={() => setMobileMenuOpen(false)}
                 className={cn(
                   'group shrink-0 flex items-center gap-3 rounded-xl px-4 py-3 text-sm border transition-all font-medium',
                   pathname.startsWith('/settings')

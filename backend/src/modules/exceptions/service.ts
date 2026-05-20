@@ -41,19 +41,24 @@ export async function listPendingExceptionsForActor(params: {
   if (!isDeptManagerRole(actorRole) || !actorDepartment) return [];
 
   const out: typeof rows = [];
+  const noPoIds = rows.filter(r => r.type === 'no_po').map(r => r.reference_id);
+  let projectMap = new Map<string, string>();
+  
+  if (noPoIds.length > 0) {
+    let pq = supabaseAdmin.from('projects').select('id, department_id').in('id', noPoIds);
+    if (companyId) pq = pq.eq('company_id', companyId);
+    const { data: projects } = await pq;
+    projectMap = new Map((projects ?? []).map(p => [p.id as string, p.department_id as string]));
+  }
+
   for (const ex of rows) {
     if (ex.type === 'over_budget') {
       if (actorDepartment === 'finance') out.push(ex);
       continue;
     }
     if (ex.type === 'no_po') {
-      let pq = supabaseAdmin
-        .from('projects')
-        .select('department_id')
-        .eq('id', ex.reference_id);
-      if (companyId) pq = pq.eq('company_id', companyId);
-      const { data: project } = await pq.maybeSingle();
-      if (project && project.department_id === actorDepartment) out.push(ex);
+      const dept = projectMap.get(ex.reference_id as string);
+      if (dept && dept === actorDepartment) out.push(ex);
     }
   }
   return out;

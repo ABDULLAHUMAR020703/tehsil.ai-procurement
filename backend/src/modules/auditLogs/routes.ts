@@ -76,7 +76,7 @@ auditLogsRouter.get('/:entityType/:entityId', async (req, res, next) => {
   }
 });
 
-auditLogsRouter.get('/', requireRole('admin'), async (req, res, next) => {
+auditLogsRouter.get('/', requireRole('admin', 'platform_admin'), async (req, res, next) => {
   try {
     const cid = companyScopeForRequest(req);
     const { action, entity } = req.query;
@@ -95,4 +95,3 @@ auditLogsRouter.get('/', requireRole('admin'), async (req, res, next) => {
     next(err);
   }
 });
-

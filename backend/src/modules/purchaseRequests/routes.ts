@@ -22,6 +22,7 @@ import { AppError } from '../../utils/errors';
 import { bypassesDepartmentScope } from '../auth/types';
 import { attachLastUpdatedFields } from '../auditLogs/lastUpdated';
 import { companyScopeForRequest } from '../../tenant/requestCompanyId';
+import { env } from '../../config/env';
 
 export const purchaseRequestsRouter = Router();
 
@@ -80,7 +81,7 @@ function stripPrDetailFinancials(req: Request, body: Record<string, unknown>): R
 purchaseRequestsRouter.post(
   '/',
   requirePermission('view_budget'),
-  requireRole('admin', 'pm', 'dept_head', 'employee'),
+  requireRole('admin', 'platform_admin', 'pm', 'dept_head', 'employee'),
   upload.single('document'),
   async (req, res, next) => {
     try {
@@ -128,7 +129,7 @@ purchaseRequestsRouter.post(
 
 purchaseRequestsRouter.get(
   '/',
-  requireRole('admin', 'pm', 'dept_head', 'employee'),
+  requireRole('admin', 'platform_admin', 'pm', 'dept_head', 'employee'),
   async (req, res, next) => {
     try {
       const userId = req.auth!.userId;
@@ -146,6 +147,17 @@ purchaseRequestsRouter.get(
           .order('created_at', { ascending: false })
           .limit(100);
         if (error) throw error;
+        
+        // Sign URLs
+        if (data) {
+          for (const row of data) {
+            if (row.document_url && !row.document_url.startsWith('http')) {
+              const { data: su } = await supabaseAdmin.storage.from(env.SUPABASE_STORAGE_BUCKET_DOCUMENTS).createSignedUrl(row.document_url, 60 * 60);
+              if (su) row.document_url = su.signedUrl;
+            }
+          }
+        }
+        
         const withAudit = await attachLastUpdatedFields('purchase_request', data ?? [], cid);
         const enriched = await withPoLineSummaries(withAudit as Record<string, unknown>[], cid);
         const visible = enriched.map((row) => redactPrListRow(req, row as Record<string, unknown>));
@@ -170,7 +182,7 @@ purchaseRequestsRouter.get(
       const ids = (approvalReqIds ?? []).map((r) => r.request_id as string);
       const { data: pendingApprovals, error: pendingErr } = ids.length
         ? await supabaseAdmin.from('purchase_requests').select(select).eq('company_id', cid).in('id', ids)
-        : { data: [] as unknown[], error: null as unknown as any };
+        : { data: [] as unknown[], error: null };
       if (pendingErr) throw pendingErr;
 
       let byProject: unknown[] = [];
@@ -199,6 +211,15 @@ purchaseRequestsRouter.get(
       for (const pr of byProject as any[]) map.set(pr.id as string, pr);
 
       const merged = [...map.values()].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 100);
+      
+      // Sign URLs
+      for (const row of merged) {
+        if (row.document_url && !row.document_url.startsWith('http')) {
+          const { data: su } = await supabaseAdmin.storage.from(env.SUPABASE_STORAGE_BUCKET_DOCUMENTS).createSignedUrl(row.document_url, 60 * 60);
+          if (su) row.document_url = su.signedUrl;
+        }
+      }
+
       const withAudit = await attachLastUpdatedFields('purchase_request', merged, cid);
       const enriched = await withPoLineSummaries(withAudit as Record<string, unknown>[], cid);
       const visible = enriched.map((row) => redactPrListRow(req, row as Record<string, unknown>));
@@ -211,7 +232,7 @@ purchaseRequestsRouter.get(
 
 purchaseRequestsRouter.get(
   '/item-duplicate-count',
-  requireRole('admin', 'pm', 'dept_head', 'employee'),
+  requireRole('admin', 'platform_admin', 'pm', 'dept_head', 'employee'),
   async (req, res, next) => {
     try {
       const q = z
@@ -234,11 +255,12 @@ purchaseRequestsRouter.get(
 
 purchaseRequestsRouter.delete(
   '/:id',
-  requireRole('admin', 'pm', 'dept_head'),
+  requireRole('admin', 'platform_admin', 'pm', 'dept_head'),
   async (req, res, next) => {
     try {
-      const requestId = req.params.id as string;
-      if (!requestId) throw new AppError('Missing purchase request id', 400);
+      const parsedParams = z.object({ id: z.string().uuid() }).safeParse(req.params);
+      if (!parsedParams.success) throw new AppError('Invalid purchase request id', 400);
+      const requestId = parsedParams.data.id;
       await deletePurchaseRequest({
         requestId,
         actorUserId: req.auth!.userId,
@@ -255,7 +277,7 @@ purchaseRequestsRouter.delete(
 
 purchaseRequestsRouter.get(
   '/:id',
-  requireRole('admin', 'pm'),
+  requireRole('admin', 'platform_admin', 'pm', 'dept_head', 'employee'),
   async (req, res, next) => {
     try {
       const requestId = req.params.id as string;
@@ -273,6 +295,11 @@ purchaseRequestsRouter.get(
 
       if (prErr) throw new AppError('Failed to fetch purchase request', 500);
       if (!pr) throw new AppError('Purchase request not found', 404);
+
+      if (pr.document_url && !pr.document_url.startsWith('http')) {
+        const { data: su } = await supabaseAdmin.storage.from(env.SUPABASE_STORAGE_BUCKET_DOCUMENTS).createSignedUrl(pr.document_url, 60 * 60);
+        if (su) pr.document_url = su.signedUrl;
+      }
 
       const prUpdatedBy = (pr as { updated_by?: string | null }).updated_by ?? null;
 
@@ -320,11 +347,15 @@ purchaseRequestsRouter.get(
       if (approvalsRes.error) throw approvalsRes.error;
 
       const actorRole = req.auth!.role;
-      if (actorRole === 'pm') {
+      if (actorRole === 'pm' || actorRole === 'dept_head') {
         const actorDept = req.auth!.department ?? null;
         const projectDept = (project?.department_id as string | null) ?? null;
         if (!projectDept || !actorDept || actorDept !== projectDept) {
           throw new AppError('You can only view purchase requests for projects in your department', 403);
+        }
+      } else if (actorRole === 'employee') {
+        if (pr.created_by !== req.auth!.userId) {
+          throw new AppError('You can only view your own purchase requests', 403);
         }
       }
 
@@ -338,8 +369,11 @@ purchaseRequestsRouter.get(
           .eq('company_id', cid)
           .maybeSingle();
         // If PO missing, keep null.
-        if (error) po = null;
-        po = data ?? null;
+        if (error) {
+          po = null;
+        } else {
+          po = data ?? null;
+        }
       }
 
       const projUpId = project ? (project as { updated_by?: string | null }).updated_by : null;

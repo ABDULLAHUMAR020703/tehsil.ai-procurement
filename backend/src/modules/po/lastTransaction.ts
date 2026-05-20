@@ -19,8 +19,10 @@ function groupRemainingSum(rows: Pick<PurchaseOrderDbRow, 'po_amount' | 'remaini
   return sum;
 }
 
-async function resolvePoGroupRows(anchorId: string): Promise<PurchaseOrderDbRow[]> {
-  const { data: anchor, error: aErr } = await supabaseAdmin.from('purchase_orders').select('*').eq('id', anchorId).maybeSingle();
+async function resolvePoGroupRows(anchorId: string, scopeCompanyId?: string): Promise<PurchaseOrderDbRow[]> {
+  let q = supabaseAdmin.from('purchase_orders').select('*').eq('id', anchorId);
+  if (scopeCompanyId) q = q.eq('company_id', scopeCompanyId);
+  const { data: anchor, error: aErr } = await q.maybeSingle();
   if (aErr || !anchor) return [];
 
   const row = anchor as PurchaseOrderDbRow;
@@ -125,8 +127,8 @@ type Candidate = {
  * PRs on linked projects or PRs targeting a line in the group. Uses PR/approval/exception rows and
  * audit_logs for budget finalization and exception decisions.
  */
-export async function getLastTransactionForPO(anchorPoLineId: string): Promise<PoLastTransactionBundle> {
-  const groupRows = await resolvePoGroupRows(anchorPoLineId);
+export async function getLastTransactionForPO(anchorPoLineId: string, scopeCompanyId?: string): Promise<PoLastTransactionBundle> {
+  const groupRows = await resolvePoGroupRows(anchorPoLineId, scopeCompanyId);
   const lineIds = groupRows.map((r) => r.id);
   const currentGroupRemaining = groupRemainingSum(groupRows);
 

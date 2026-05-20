@@ -14,9 +14,17 @@ export function createApp() {
       contentSecurityPolicy: false, // disable CSP for now to allow API calls
     }),
   );
+  const allowedOrigins = env.CORS_ORIGIN ? env.CORS_ORIGIN.split(',').map(s => s.trim()) : [];
   app.use(
     cors({
-      origin: '*', // allow all for now (can restrict later)
+      origin: (origin, callback) => {
+        if (!origin || env.NODE_ENV === 'development' || allowedOrigins.includes(origin)) {
+          callback(null, true);
+        } else {
+          callback(new Error('Not allowed by CORS'));
+        }
+      },
+      credentials: true,
     }),
   );
   app.use(

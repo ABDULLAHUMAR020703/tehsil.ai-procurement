@@ -91,7 +91,7 @@ export default function PurchaseRequestDetailsPage() {
   const queryClient = useQueryClient();
   const { accessToken, supabase, profile } = useAuth();
   const requestId = params?.id ?? '';
-  const isAdmin = profile?.role === 'admin';
+  const isAdmin = profile?.role === 'admin' || profile?.role === 'platform_admin';
   const [overrideDecision, setOverrideDecision] = useState<'approved' | 'rejected'>('approved');
   const [overrideReason, setOverrideReason] = useState('');
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -100,6 +100,7 @@ export default function PurchaseRequestDetailsPage() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['purchase-request-detail', requestId],
     enabled: !!accessToken && !!supabase && !!requestId && isAdmin,
+    staleTime: 60 * 1000,
     queryFn: async () => {
       try {
         return await authedFetchWithSupabase<DetailResponse>(supabase, `/api/purchase-requests/${requestId}`);

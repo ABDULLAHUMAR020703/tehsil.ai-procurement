@@ -29,7 +29,7 @@ projectsRouter.use(requirePermission('view_projects'));
 
 const DepartmentIdSchema = z.string().min(1).max(64).regex(/^[a-z0-9_]+$/);
 
-projectsRouter.post('/', requirePermission('view_budget'), requireRole('admin', 'pm', 'dept_head'), async (req, res, next) => {
+projectsRouter.post('/', requirePermission('view_budget'), requireRole('admin', 'platform_admin', 'pm', 'dept_head'), async (req, res, next) => {
   try {
     const Schema = z.object({
       name: z.string().min(1).max(200),
@@ -70,7 +70,7 @@ projectsRouter.post('/', requirePermission('view_budget'), requireRole('admin', 
   }
 });
 
-projectsRouter.get('/', requireRole('admin', 'pm', 'dept_head', 'employee'), async (req, res, next) => {
+projectsRouter.get('/', requireRole('admin', 'platform_admin', 'pm', 'dept_head', 'employee'), async (req, res, next) => {
   try {
     const role = req.auth!.role;
     const dept = req.auth!.department ?? null;
@@ -206,7 +206,7 @@ projectsRouter.get('/', requireRole('admin', 'pm', 'dept_head', 'employee'), asy
   }
 });
 
-projectsRouter.get('/:id', requireRole('admin', 'pm', 'dept_head', 'employee'), async (req, res, next) => {
+projectsRouter.get('/:id', requireRole('admin', 'platform_admin', 'pm', 'dept_head', 'employee'), async (req, res, next) => {
   try {
     const id = z.string().uuid().parse(req.params.id);
     const role = req.auth!.role;
@@ -373,7 +373,7 @@ projectsRouter.get('/:id', requireRole('admin', 'pm', 'dept_head', 'employee'), 
 
 projectsRouter.patch(
   '/:id/team-lead',
-  requireRole('admin', 'pm', 'dept_head'),
+  requireRole('admin', 'platform_admin', 'pm', 'dept_head'),
   async (req, res, next) => {
     try {
       const id = z.string().uuid().parse(req.params.id);
@@ -396,7 +396,7 @@ projectsRouter.patch(
   },
 );
 
-projectsRouter.patch('/:id/members', requireRole('admin', 'pm', 'dept_head'), async (req, res, next) => {
+projectsRouter.patch('/:id/members', requireRole('admin', 'platform_admin', 'pm', 'dept_head'), async (req, res, next) => {
   try {
     const id = z.string().uuid().parse(req.params.id);
     const Body = z.object({
@@ -417,7 +417,7 @@ projectsRouter.patch('/:id/members', requireRole('admin', 'pm', 'dept_head'), as
   }
 });
 
-projectsRouter.delete('/:id', requireRole('admin', 'pm', 'dept_head'), async (req, res, next) => {
+projectsRouter.delete('/:id', requireRole('admin', 'platform_admin', 'pm', 'dept_head'), async (req, res, next) => {
   try {
     const id = z.string().uuid().parse(req.params.id);
     const result = await archiveProject({

@@ -21,7 +21,7 @@ const formItem = {
 };
 
 export default function LoginPage() {
-  const { signIn, session, supabaseConfigError } = useAuth();
+  const { signIn, session, profile, supabaseConfigError } = useAuth();
   const router = useRouter();
   const reduceMotion = useReducedMotion();
   const [email, setEmail] = useState('');
@@ -44,10 +44,10 @@ export default function LoginPage() {
   };
 
   useEffect(() => {
-    if (session) {
+    if (session && profile) {
       router.replace('/dashboard');
     }
-  }, [session, router]);
+  }, [session, profile, router]);
 
   return (
     <div className="min-h-screen flex flex-col text-stone-800 dark:text-stone-100 font-sans relative overflow-hidden">

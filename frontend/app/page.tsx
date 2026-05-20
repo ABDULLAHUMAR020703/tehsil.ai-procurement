@@ -247,7 +247,7 @@ export default function LandingPage() {
                 transition={{ type: 'spring', stiffness: 420, damping: 20 }}
               >
                 <Link
-                  href="/sign-in"
+                  href="/login"
                   className="inline-flex items-center justify-center gap-2 px-7 py-3.5 rounded-2xl border-2 border-orange-300/80 dark:border-orange-500/45 bg-[var(--surface)]/80 dark:bg-stone-900/60 text-orange-900 dark:text-orange-100 font-semibold tracking-wide shadow-md shadow-stone-200/30 dark:shadow-stone-950/40 backdrop-blur-sm hover:border-orange-400 dark:hover:border-orange-400 hover:bg-orange-50/90 dark:hover:bg-orange-950/35 transition-colors duration-300"
                 >
                   <LogIn className="w-4 h-4" aria-hidden />
