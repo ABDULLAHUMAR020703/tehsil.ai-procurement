@@ -22,4 +22,29 @@ const EnvSchema = z.object({
 
 export type Env = z.infer<typeof EnvSchema>;
 
-export const env: Env = EnvSchema.parse(process.env);
+function decodeJwtRole(jwt: string): string | null {
+  const parts = jwt.split('.');
+  if (parts.length < 2 || !parts[1]) return null;
+
+  try {
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=');
+    const payload = JSON.parse(Buffer.from(padded, 'base64').toString('utf8')) as { role?: unknown };
+    return typeof payload.role === 'string' ? payload.role : null;
+  } catch {
+    return null;
+  }
+}
+
+const parsedEnv = EnvSchema.parse(process.env);
+const serviceRoleClaim = decodeJwtRole(parsedEnv.SUPABASE_SERVICE_ROLE_KEY);
+
+if (serviceRoleClaim !== 'service_role') {
+  throw new Error(
+    `SUPABASE_SERVICE_ROLE_KEY must be the Supabase service_role JWT. Current JWT role claim: ${
+      serviceRoleClaim ?? 'unreadable'
+    }. Update the Render environment variable; do not use the anon key for the backend.`,
+  );
+}
+
+export const env: Env = parsedEnv;
