@@ -111,7 +111,7 @@ export function lineItemToPayload(
     wnd: row.extras.wnd !== undefined ? num(row.extras.wnd, 0) : num(ex.wnd, 0),
     remaining_amount,
     po_number: row.po,
-    vendor: customerStr || '—',
+    vendor: customerStr || 'Unknown',
     total_value: po_amount,
     remaining_value: remaining_amount,
     uploaded_by: actorUserId,

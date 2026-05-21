@@ -47,15 +47,25 @@ export function detectPoFileFormat(sample: Record<string, unknown> | null | unde
   return 'legacy_vendor';
 }
 
+function normalizeMoneyString(value: string): string {
+  return value
+    .trim()
+    .replace(/\u00a0/g, ' ')
+    .replace(/,/g, '')
+    .replace(/[\u20a8\u0024\u00a3\u20ac]/g, '')
+    .replace(/\s+/g, '')
+    .replace(/^\((.*)\)$/, '-$1');
+}
+
+function isDashPlaceholder(value: string): boolean {
+  const normalized = value.trim().replace(/\u00a0/g, ' ').replace(/\s+/g, '');
+  return !normalized || /^[-\u2013\u2014]+$/.test(normalized);
+}
+
 function parseMoney(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value !== 'string') throw new AppError('Numeric field must be a number or string', 400);
-  const trimmed = value.trim();
-  const normalized = trimmed
-    .replace(/,/g, '')
-    .replace(/[₨$£€]/g, '')
-    .replace(/\s+/g, '')
-    .replace(/^\((.*)\)$/, '-$1');
+  const normalized = normalizeMoneyString(value);
   const num = Number(normalized);
   if (!Number.isFinite(num)) throw new AppError(`Invalid number: ${value}`, 400);
   return num;
@@ -63,13 +73,9 @@ function parseMoney(value: unknown): number {
 
 function parseOptionalMoney(value: unknown): number | undefined {
   if (value === null || value === undefined || value === '') return undefined;
-  if (typeof value === 'string') {
-    const normalized = value.trim().replace(/\s+/g, '');
-    if (!normalized || /^[-–—]+$/.test(normalized)) return undefined;
-  }
+  if (typeof value === 'string' && isDashPlaceholder(value)) return undefined;
   return parseMoney(value);
 }
-
 function parseOptionalInt(value: unknown): number | undefined {
   if (value === null || value === undefined || value === '') return undefined;
   if (typeof value === 'number' && Number.isInteger(value)) return value;

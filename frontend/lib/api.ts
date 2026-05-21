@@ -11,7 +11,7 @@ export class NoSessionError extends Error {
 }
 
 export function formatPkr(amount: number) {
-  if (!Number.isFinite(amount)) return '—';
+  if (!Number.isFinite(amount)) return '-';
   return `${new Intl.NumberFormat('en-PK', { maximumFractionDigits: 2 }).format(amount)} PKR`;
 }
 
@@ -49,7 +49,7 @@ export function formatApiErrorMessage(body: Record<string, unknown>, fallbackSta
   return 'Request failed';
 }
 
-/** Multipart upload (do not set Content-Type — browser adds boundary). */
+/** Multipart upload: do not set Content-Type because the browser adds the boundary. */
 export async function authedUploadFetch<T>(
   supabase: SupabaseClient | null,
   path: string,

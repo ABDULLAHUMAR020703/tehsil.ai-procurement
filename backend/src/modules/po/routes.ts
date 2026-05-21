@@ -59,6 +59,12 @@ async function handlePoUpload(
       companyId: cid,
       userId: actorUserId,
       role: actorRole,
+      headers: {
+        contentType: req.headers['content-type'],
+        contentLength: req.headers['content-length'],
+        origin: req.headers.origin,
+        userAgent: req.headers['user-agent'],
+      },
       hasFile: Boolean(req.file),
       fileBytes: req.file?.size,
       fileName: req.file?.originalname,
@@ -76,7 +82,10 @@ async function handlePoUpload(
       });
       logPoUpload(req, 'parse_ok', { mode: parsed.mode, rowCount: parsed.rows.length });
     } catch (parseErr) {
-      logPoUpload(req, 'parse_failed', { error: parseErr instanceof Error ? parseErr.message : String(parseErr) });
+      logPoUpload(req, 'parse_failed', {
+        error: parseErr instanceof Error ? parseErr.message : String(parseErr),
+        stack: parseErr instanceof Error ? parseErr.stack : undefined,
+      });
       throw parseErr;
     }
 
