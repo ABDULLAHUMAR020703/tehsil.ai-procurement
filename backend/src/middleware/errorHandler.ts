@@ -1,6 +1,7 @@
 import type { ErrorRequestHandler } from 'express';
 import multer from 'multer';
 import { AppError } from '../utils/errors';
+import { isPostgrestError, postgrestErrorFields, postgrestErrorMessage } from '../utils/supabaseError';
 
 function normalizeErr(err: unknown): {
   status: number;
@@ -22,6 +23,16 @@ function normalizeErr(err: unknown): {
       logMessage: `multer:${err.code}`,
     };
   }
+  if (isPostgrestError(err)) {
+    const status =
+      err.code === '23505' ? 409 : err.code === '23503' ? 400 : err.code === 'PGRST204' ? 400 : 500;
+    return {
+      status,
+      message: err.message,
+      details: postgrestErrorFields(err),
+      logMessage: `[${err.code ?? 'postgrest'}] ${err.message}`,
+    };
+  }
   if (err instanceof Error) {
     const corsBlocked = err.message.startsWith('CORS blocked') || err.message === 'Not allowed by CORS';
     if (corsBlocked) {
@@ -30,17 +41,6 @@ function normalizeErr(err: unknown): {
     return { status: 500, message: 'Internal Server Error', logMessage: err.message };
   }
   return { status: 500, message: 'Internal Server Error', logMessage: String(err) };
-}
-
-function supabaseFields(err: unknown): Record<string, unknown> | undefined {
-  if (!err || typeof err !== 'object') return undefined;
-  const o = err as { code?: string; message?: string; details?: string; hint?: string };
-  if (!o.code && !o.message) return undefined;
-  return {
-    code: o.code,
-    hint: o.hint,
-    details: o.details,
-  };
 }
 
 export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
@@ -53,7 +53,7 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
     method: req.method,
     message: logMessage,
     stack: err instanceof Error ? err.stack : undefined,
-    supabase: supabaseFields(err),
+    supabase: postgrestErrorFields(err),
   };
   if (log) log.error(logPayload, 'request_error');
   else console.error('[request_error]', logPayload);
@@ -69,16 +69,11 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
     }
   }
 
-  const sb = supabaseFields(err);
-  if (sb && status >= 500) {
-    payload.errorCode = sb.code;
-    if (process.env.EXPOSE_API_ERRORS === '1') {
-      payload.errorHint = sb.hint;
-      payload.errorDetails = sb.details;
-    }
-  }
-
-  if (process.env.NODE_ENV !== 'production' && err instanceof Error && status >= 500) {
+  if (isPostgrestError(err)) {
+    Object.assign(payload, postgrestErrorFields(err) ?? {});
+  } else if (status >= 500 && err instanceof Error) {
+    payload.debug = postgrestErrorMessage(err);
+  } else if (process.env.NODE_ENV !== 'production' && err instanceof Error && status >= 500) {
     payload.debug = err.message;
   }
 

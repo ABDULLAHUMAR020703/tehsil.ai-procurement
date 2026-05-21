@@ -44,7 +44,10 @@ export function createApp() {
   });
 
   app.get('/api/health', (_req, res) => {
-    res.json({ status: 'ok' });
+    res.json({
+      status: 'ok',
+      build: process.env.RENDER_GIT_COMMIT ?? process.env.VERCEL_GIT_COMMIT_SHA ?? 'local',
+    });
   });
 
   app.use('/api', apiRouter);

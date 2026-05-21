@@ -6,7 +6,43 @@ import { recordTrackedAction } from '../auditLogs/trackedAction';
 import { getAdminUserIds } from '../notifications/service';
 import { isDeptManagerRole, type UserRole } from '../auth/types';
 import { calcRemainingAmount, type ParsedLineItemRow } from './service';
+import { OPTIONAL_HEADER_TO_COLUMN } from './lineItemMap';
 import { logPoUpload } from './uploadLog';
+import { postgrestErrorMessage, throwSupabaseError } from '../../utils/supabaseError';
+
+/** Columns we may send to `purchase_orders` (avoids PGRST204 when prod DB lags migrations). */
+const PO_INSERT_COLUMNS = new Set<string>([
+  'company_id',
+  'po',
+  'po_line_sn',
+  'item_code',
+  'description',
+  'unit_price',
+  'po_amount',
+  'po_invoiced',
+  'po_acceptance_approved',
+  'pending_to_apply',
+  'po_acceptance_pending',
+  'acceptance_rejected_amount',
+  'wnd',
+  'remaining_amount',
+  'po_number',
+  'vendor',
+  'total_value',
+  'remaining_value',
+  'uploaded_by',
+  'updated_by',
+  'department',
+  ...Object.values(OPTIONAL_HEADER_TO_COLUMN),
+]);
+
+function pickPoRowPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(payload)) {
+    if (PO_INSERT_COLUMNS.has(key)) out[key] = value;
+  }
+  return out;
+}
 
 const INSERT_CHUNK = 100;
 const UPDATE_CONCURRENCY = 15;
@@ -91,8 +127,17 @@ export function lineItemToPayload(
 }
 
 function supabaseErrMessage(err: unknown): string {
-  if (err && typeof err === 'object' && 'message' in err) return String((err as { message: unknown }).message);
-  return err instanceof Error ? err.message : 'Unknown database error';
+  return postgrestErrorMessage(err);
+}
+
+async function insertOnePoRow(
+  payload: Record<string, unknown>,
+  companyId: string,
+): Promise<{ id: string } | null> {
+  const row = pickPoRowPayload(payload);
+  const { data, error } = await supabaseAdmin.from('purchase_orders').insert(row).select('id').single();
+  if (error) throw error;
+  return data?.id ? { id: data.id as string } : null;
 }
 
 async function runPool<T>(items: T[], concurrency: number, fn: (item: T) => Promise<void>): Promise<void> {
@@ -138,7 +183,7 @@ export async function handleLineItemUpload(params: {
         .select('*')
         .eq('company_id', companyId)
         .in('po_line_sn', chunk);
-      if (findErr) throw findErr;
+      if (findErr) throwSupabaseError(findErr);
       for (const row of existingRows ?? []) {
         const sn = row.po_line_sn as string | undefined;
         if (sn) existingBySn.set(sn, row as Record<string, unknown>);
@@ -158,12 +203,12 @@ export async function handleLineItemUpload(params: {
     if (existing?.id) {
       toUpdate.push({
         id: existing.id as string,
-        payload,
+        payload: pickPoRowPayload(payload),
         rowIndex: index,
         label: row.po_line_sn || row.po || 'unknown',
       });
     } else {
-      toInsert.push(payload);
+      toInsert.push(pickPoRowPayload(payload));
     }
   }
 
@@ -186,12 +231,27 @@ export async function handleLineItemUpload(params: {
       inserted += insRows?.length ?? chunk.length;
       const first = insRows?.[0]?.id as string | undefined;
       if (first && !firstEntityId) firstEntityId = first;
-    } catch (err) {
+    } catch (chunkErr) {
+      if (req) {
+        logPoUpload(req, 'db_insert_chunk_fallback', {
+        offset,
+        chunkSize: chunk.length,
+        error: supabaseErrMessage(chunkErr),
+        });
+      }
       for (let j = 0; j < chunk.length; j++) {
-        failed += 1;
-        failures.push(
-          `row ${offset + j + 2} (${(chunk[j]?.po_line_sn as string) ?? 'unknown'}): ${supabaseErrMessage(err)}`,
-        );
+        const rowPayload = chunk[j]!;
+        const label = (rowPayload.po_line_sn as string) ?? 'unknown';
+        try {
+          const ins = await insertOnePoRow(rowPayload, companyId);
+          if (ins?.id) {
+            inserted += 1;
+            if (!firstEntityId) firstEntityId = ins.id;
+          }
+        } catch (rowErr) {
+          failed += 1;
+          failures.push(`row ${offset + j + 2} (${label}): ${supabaseErrMessage(rowErr)}`);
+        }
       }
     }
   }

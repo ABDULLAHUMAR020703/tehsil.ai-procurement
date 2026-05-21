@@ -37,7 +37,18 @@ function num(v: unknown, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
-poRouter.post('/upload', requireRole('admin', 'platform_admin', 'pm', 'dept_head'), upload.single('file'), async (req, res, next) => {
+poRouter.post('/upload', requireRole('admin', 'platform_admin', 'pm', 'dept_head'), (req, res, next) => {
+  upload.single('file')(req, res, (multerErr) => {
+    if (multerErr) return next(multerErr);
+    void handlePoUpload(req, res, next);
+  });
+});
+
+async function handlePoUpload(
+  req: import('express').Request,
+  res: import('express').Response,
+  next: import('express').NextFunction,
+) {
   try {
     const actorUserId = req.auth!.userId;
     const actorRole = req.auth!.role;
@@ -242,7 +253,7 @@ poRouter.post('/upload', requireRole('admin', 'platform_admin', 'pm', 'dept_head
   } catch (err) {
     next(err);
   }
-});
+}
 
 poRouter.get('/search', requireRole('admin', 'platform_admin', 'pm', 'dept_head', 'employee'), async (req, res, next) => {
   try {
