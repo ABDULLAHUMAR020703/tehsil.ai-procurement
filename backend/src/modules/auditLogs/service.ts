@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '../../config/supabase';
+import { AppError } from '../../utils/errors';
 
 export type AuditLogInsert = {
   action: string;
@@ -29,7 +30,7 @@ export async function writeAuditLog(params: AuditLogInsert) {
     companyId = (u?.company_id as string | undefined) ?? null;
   }
   if (!companyId) {
-    throw new Error('writeAuditLog: could not resolve company_id');
+    throw new AppError('Audit log missing company_id', 500, { userId: params.userId, entityId: params.entityId });
   }
   const { error } = await supabaseAdmin.from('audit_logs').insert({
     action: params.action,

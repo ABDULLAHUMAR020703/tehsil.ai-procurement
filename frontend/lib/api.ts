@@ -30,8 +30,46 @@ export function formatApiErrorMessage(body: Record<string, unknown>, fallbackSta
   }
   if (typeof body.message === 'string' && body.message.trim()) return body.message;
   if (typeof body.error === 'string' && body.error.trim()) return body.error;
+  const parts: string[] = [];
+  if (typeof body.errorCode === 'string' && body.errorCode) parts.push(`[${body.errorCode}]`);
+  if (typeof body.debug === 'string' && body.debug.trim()) parts.push(body.debug);
+  if (Array.isArray(body.failures) && body.failures.length > 0) {
+    parts.push(body.failures.slice(0, 5).join('\n'));
+  }
+  if (parts.length > 0) {
+    const base =
+      typeof body.message === 'string' && body.message.trim()
+        ? body.message
+        : fallbackStatus != null
+          ? `Request failed (${fallbackStatus})`
+          : 'Request failed';
+    return `${base}\n${parts.join('\n')}`;
+  }
   if (fallbackStatus != null) return `Request failed (${fallbackStatus})`;
   return 'Request failed';
+}
+
+/** Multipart upload (do not set Content-Type — browser adds boundary). */
+export async function authedUploadFetch<T>(
+  supabase: SupabaseClient | null,
+  path: string,
+  formData: FormData,
+): Promise<T> {
+  const token = await getAccessTokenFromSupabaseSession(supabase);
+  const res = await fetch(`${backendBase}${path}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+  });
+  let body: Record<string, unknown> = {};
+  try {
+    const json = await res.json();
+    if (json && typeof json === 'object' && !Array.isArray(json)) body = json as Record<string, unknown>;
+  } catch {
+    // ignore
+  }
+  if (!res.ok) throw new ApiError(res.status, body);
+  return body as T;
 }
 
 export class ApiError extends Error {

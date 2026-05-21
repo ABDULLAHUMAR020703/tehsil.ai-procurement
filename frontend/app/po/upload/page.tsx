@@ -10,7 +10,7 @@ import { Input } from '../../../components/ui/Input';
 import { PageContainer } from '../../../components/ui/PageContainer';
 import { PageHeader } from '../../../components/ui/PageHeader';
 import { useAuth } from '../../../features/auth/AuthProvider';
-import { getAccessTokenFromSupabaseSession, NoSessionError } from '../../../lib/api';
+import { authedUploadFetch, NoSessionError } from '../../../lib/api';
 
 type UploadResult = {
   ok?: boolean;
@@ -22,6 +22,7 @@ type UploadResult = {
   skipped?: number;
   duplicatesHandled?: string[];
   failures?: string[];
+  warnings?: string[];
 };
 
 export default function PoUploadPage() {
@@ -43,30 +44,18 @@ export default function PoUploadPage() {
     }
     setLoading(true);
     try {
-      let bearer: string;
-      try {
-        bearer = await getAccessTokenFromSupabaseSession(supabase);
-      } catch (e) {
-        if (e instanceof NoSessionError) router.replace('/login');
-        throw e;
-      }
-      const apiBase = process.env.NEXT_PUBLIC_BACKEND_BASE_URL ?? 'http://localhost:4000';
+      if (!supabase) throw new Error('Supabase is not configured');
       const fd = new FormData();
       fd.append('file', file);
-      const res = await fetch(`${apiBase}/api/po/upload`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${bearer}` },
-        body: fd,
-      });
-      const json = (await res.json().catch(() => ({}))) as UploadResult & { message?: string; failures?: string[] };
-      if (!res.ok) {
-        const details = Array.isArray(json.failures) && json.failures.length > 0 ? `\n${json.failures.join('\n')}` : '';
-        throw new Error(`${json.message ?? 'Upload failed'}${details}`);
-      }
+      const json = await authedUploadFetch<UploadResult>(supabase, '/api/po/upload', fd);
       setResult(json);
       await queryClient.invalidateQueries({ queryKey: ['po'] });
       await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
     } catch (err) {
+      if (err instanceof NoSessionError) {
+        router.replace('/login');
+        return;
+      }
       setError(err instanceof Error ? err.message : 'Upload failed');
     } finally {
       setLoading(false);
@@ -131,6 +120,11 @@ export default function PoUploadPage() {
                   {result.failures && result.failures.length > 0 ? (
                     <div className="rounded-lg border border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 p-3 text-xs text-amber-900 dark:text-amber-200">
                       {result.failures.join('\n')}
+                    </div>
+                  ) : null}
+                  {result.warnings && result.warnings.length > 0 ? (
+                    <div className="rounded-lg border border-amber-300 dark:border-amber-600 bg-amber-50/80 dark:bg-amber-950/40 p-3 text-xs text-amber-950 dark:text-amber-100">
+                      {result.warnings.join('\n')}
                     </div>
                   ) : null}
                 </Card>

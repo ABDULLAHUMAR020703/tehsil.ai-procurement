@@ -21,7 +21,11 @@ export function createApp() {
         if (!origin || env.NODE_ENV === 'development' || allowedOrigins.includes(origin)) {
           callback(null, true);
         } else {
-          callback(new Error('Not allowed by CORS'));
+          callback(
+            new Error(
+              `CORS blocked origin: ${origin}. Set CORS_ORIGIN on the API to include this frontend URL.`,
+            ),
+          );
         }
       },
       credentials: true,

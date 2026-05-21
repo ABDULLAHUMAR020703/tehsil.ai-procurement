@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '../../config/supabase';
+import { AppError } from '../../utils/errors';
 
 async function companyIdForUser(userId: string): Promise<string | null> {
   const { data, error } = await supabaseAdmin.from('users').select('company_id').eq('id', userId).maybeSingle();
@@ -8,7 +9,9 @@ async function companyIdForUser(userId: string): Promise<string | null> {
 
 export async function createInAppNotification(params: { userId: string; type: string; message: string }) {
   const companyId = await companyIdForUser(params.userId);
-  if (!companyId) throw new Error('createInAppNotification: user missing company_id');
+  if (!companyId) {
+    throw new AppError('Notification user missing company_id', 500, { userId: params.userId });
+  }
 
   const { error } = await supabaseAdmin.from('notifications').insert({
     user_id: params.userId,
@@ -40,7 +43,9 @@ export async function enqueueEmailPlaceholder(params: {
     if (error) throw error;
     companyId = (data?.company_id as string | undefined) ?? null;
   }
-  if (!companyId) throw new Error('enqueueEmailPlaceholder: could not resolve company_id');
+  if (!companyId) {
+    throw new AppError('Email outbox could not resolve company_id', 500, { toEmail: params.toEmail });
+  }
 
   const { error } = await supabaseAdmin.from('email_outbox').insert({
     to_email: params.toEmail,
