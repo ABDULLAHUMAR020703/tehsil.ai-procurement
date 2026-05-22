@@ -16,7 +16,8 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<string, readonly AppPermission[]> 
   pm: ['view_projects', 'view_pos', 'view_approvals'],
   finance: ['view_pos', 'view_budget', 'manage_exceptions'],
   gm: ['view_projects', 'view_pos', 'view_approvals', 'approve_requests', 'view_budget'],
-  employee: ['view_projects'],
+  /** Employees may receive project-scoped team-lead approval rows; API still limits them to assigned rows. */
+  employee: ['view_projects', 'view_approvals', 'approve_requests'],
   /** App role: department head — aligned with “gm” style defaults in product spec. */
   dept_head: ['view_projects', 'view_pos', 'view_approvals', 'approve_requests', 'view_budget'],
 };

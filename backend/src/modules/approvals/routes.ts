@@ -33,9 +33,10 @@ approvalsRouter.get('/', requirePermission('view_approvals'), requireRole('admin
       .from('approvals')
       .select('id, request_id, approver_id, role, status, comments, created_at, updated_at, updated_by, is_admin_override')
       .eq('company_id', cid)
+      .eq('status', 'pending')
       .order('created_at', { ascending: false })
       .limit(200);
-    if (!bypassesDepartmentScope(role)) q = q.eq('approver_id', userId);
+    if (!bypassesDepartmentScope(role) && role !== 'dept_head') q = q.eq('approver_id', userId);
     const { data, error } = await q;
     if (error) throw error;
     const rows = data ?? [];
@@ -45,6 +46,8 @@ approvalsRouter.get('/', requirePermission('view_approvals'), requireRole('admin
       {
         id: string;
         status: string;
+        project_id: string;
+        department_id: string | null;
         item_code: string | null;
         duplicate_count: number;
         po_line_summary: unknown | null;
@@ -54,7 +57,7 @@ approvalsRouter.get('/', requirePermission('view_approvals'), requireRole('admin
       const { data: prs, error: prErr } = await supabaseAdmin
         .from('purchase_requests')
         .select(
-          'id, company_id, project_id, description, amount, item_code, duplicate_count, po_line_id, requested_quantity, status',
+          'id, company_id, project_id, description, amount, item_code, duplicate_count, po_line_id, requested_quantity, status, projects ( department_id )',
         )
         .eq('company_id', cid)
         .in('id', requestIds);
@@ -75,9 +78,12 @@ approvalsRouter.get('/', requirePermission('view_approvals'), requireRole('admin
       );
       for (const p of prs ?? []) {
         const id = p.id as string;
+        const project = p.projects as { department_id?: string | null } | null | undefined;
         prMap.set(id, {
           id,
           status: (p.status as string) ?? 'pending',
+          project_id: p.project_id as string,
+          department_id: project?.department_id ?? null,
           item_code: (p.item_code as string | null) ?? null,
           duplicate_count: Number(p.duplicate_count ?? 1),
           po_line_summary: summaries.get(id) ?? null,
@@ -85,10 +91,28 @@ approvalsRouter.get('/', requirePermission('view_approvals'), requireRole('admin
       }
     }
     const withAudit = await attachLastUpdatedFields('approval', rows, cid);
-    const enriched = withAudit.map((a) => ({
+    const visibleRows = withAudit.filter((a) => {
+      if (bypassesDepartmentScope(role)) return true;
+      if (a.approver_id === userId) return true;
+      if (role === 'dept_head') {
+        const pr = prMap.get(a.request_id as string);
+        return a.role === 'pm' && !!req.auth!.department && pr?.department_id === req.auth!.department;
+      }
+      return false;
+    });
+    const enriched = visibleRows.map((a) => ({
       ...a,
       purchase_request: prMap.get(a.request_id as string) ?? null,
     }));
+    if (process.env.DEBUG_APPROVALS === '1') {
+      // eslint-disable-next-line no-console
+      console.log('[approvals] list pending', {
+        actor: userId,
+        role,
+        companyId: cid,
+        count: enriched.length,
+      });
+    }
     res.json({ approvals: enriched });
   } catch (err) {
     next(err);
@@ -153,6 +177,7 @@ approvalsRouter.post(
         comments: parsed.comments ?? null,
         actorUserId: req.auth!.userId,
         actorRole: req.auth!.role,
+        actorDepartment: req.auth!.department ?? null,
         companyId: companyScopeForRequest(req),
       });
 

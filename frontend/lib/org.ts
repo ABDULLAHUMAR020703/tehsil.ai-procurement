@@ -8,7 +8,7 @@ export function isTeamLeadForProject(
   return Boolean(userId && project?.team_lead_id && project.team_lead_id === userId);
 }
 
-/** Required chain: Team Lead → PM (PM final). Admin is not in this list. */
+/** Required chain: Team Lead -> PM (PM final). Admin is not in this list. */
 export const REQUIRED_APPROVAL_STAGE_ORDER = ['team_lead', 'pm'] as const;
 
 /** Sort order when listing rows that may still include legacy `admin` records. */

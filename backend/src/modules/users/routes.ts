@@ -14,7 +14,7 @@ export const usersRouter = Router();
 usersRouter.use(requireAuth);
 
 const DepartmentCodeSchema = z.string().min(1).max(64).regex(/^[a-z0-9_]+$/);
-const RoleSchema = z.enum(['admin', 'pm', 'dept_head', 'employee']);
+const RoleSchema = z.enum(['admin', 'pm', 'dept_head', 'employee', 'platform_admin']);
 
 usersRouter.get('/', requireRole('admin', 'pm', 'dept_head', 'platform_admin'), async (req, res, next) => {
   try {

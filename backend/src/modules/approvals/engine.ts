@@ -15,6 +15,12 @@ export function getApprovalStageOrder(): readonly RequiredApprovalStageRole[] {
   return REQUIRED_APPROVAL_STAGE_ORDER;
 }
 
+function debugApprovalFlow(message: string, payload?: Record<string, unknown>) {
+  if (process.env.DEBUG_APPROVALS !== '1') return;
+  // eslint-disable-next-line no-console
+  console.log(`[approvals] ${message}`, payload ?? {});
+}
+
 async function departmentScopeForProjectId(projectId: string, companyId: string): Promise<string | null> {
   const { data } = await supabaseAdmin
     .from('projects')
@@ -25,22 +31,18 @@ async function departmentScopeForProjectId(projectId: string, companyId: string)
   return (data?.department_id as string | null) ?? null;
 }
 
-export async function startApprovalsForPurchaseRequest(prId: string, triggeredBy: string) {
-  const { data: pr, error: prErr } = await supabaseAdmin
-    .from('purchase_requests')
-    .select('id, company_id, amount, project_id, created_by, status, duplicate_count')
-    .eq('id', prId)
-    .single();
-  if (prErr || !pr) throw prErr ?? new AppError('Purchase request not found', 404);
-
-  const companyId = pr.company_id as string;
-  const tenantForProject: TenantAuth = { userId: triggeredBy, role: 'admin', companyId };
-
-  if (pr.status !== 'pending' && pr.status !== 'pending_exception') {
-    throw new AppError(`PR cannot start approval workflow from status=${pr.status}`, 409);
-  }
-
-  const project = await fetchProjectOrThrow(pr.project_id as string, tenantForProject);
+async function upsertRequiredApprovalRows(params: {
+  pr: {
+    id: string;
+    company_id: string;
+    amount: number | string;
+    project_id: string;
+    duplicate_count?: number | null;
+  };
+}) {
+  const { pr } = params;
+  const tenantForProject: TenantAuth = { userId: 'system', role: 'admin', companyId: pr.company_id };
+  const project = await fetchProjectOrThrow(pr.project_id, tenantForProject);
   const stageList = await buildApprovalStagesForProject(project);
 
   const dupCount = Number(pr.duplicate_count ?? 1);
@@ -53,7 +55,7 @@ export async function startApprovalsForPurchaseRequest(prId: string, triggeredBy
     role: s.role,
     status: 'pending',
     comments: duplicateNote,
-    company_id: companyId,
+    company_id: pr.company_id,
   }));
 
   const { error: insErr } = await supabaseAdmin.from('approvals').upsert(approvalsToInsert, {
@@ -61,6 +63,40 @@ export async function startApprovalsForPurchaseRequest(prId: string, triggeredBy
     ignoreDuplicates: true,
   });
   if (insErr) throw insErr;
+
+  return { project, stageList };
+}
+
+export async function startApprovalsForPurchaseRequest(prId: string, triggeredBy: string) {
+  const { data: pr, error: prErr } = await supabaseAdmin
+    .from('purchase_requests')
+    .select('id, company_id, amount, project_id, created_by, status, duplicate_count')
+    .eq('id', prId)
+    .single();
+  if (prErr || !pr) throw prErr ?? new AppError('Purchase request not found', 404);
+
+  const companyId = pr.company_id as string;
+  if (pr.status !== 'pending' && pr.status !== 'pending_exception') {
+    throw new AppError(`PR cannot start approval workflow from status=${pr.status}`, 409);
+  }
+
+  const { project, stageList } = await upsertRequiredApprovalRows({
+    pr: {
+      id: pr.id as string,
+      company_id: companyId,
+      amount: pr.amount as number | string,
+      project_id: pr.project_id as string,
+      duplicate_count: pr.duplicate_count as number | null,
+    },
+  });
+
+  debugApprovalFlow('start workflow', {
+    prId,
+    companyId,
+    triggeredBy,
+    amount: Number(pr.amount),
+    stages: stageList.map((s) => ({ role: s.role, approver_id: s.approver_id })),
+  });
 
   const firstRole = stageList[0].role;
   const { data: firstApproval, error: firstErr } = await supabaseAdmin
@@ -368,10 +404,12 @@ export async function decideApproval(params: {
   comments?: string | null;
   actorUserId: string;
   actorRole: UserRole;
+  actorDepartment?: string | null;
   companyId: string;
 }) {
-  const { approvalId, decision, comments, actorUserId, actorRole, companyId } = params;
+  const { approvalId, decision, comments, actorUserId, actorRole, actorDepartment, companyId } = params;
   const decisionNormalized = decision === 'approved' ? 'approved' : 'rejected';
+  debugApprovalFlow('decision requested', { approvalId, decision: decisionNormalized, actorUserId, actorRole, companyId });
 
   const { data: approval, error: apprErr } = await supabaseAdmin
     .from('approvals')
@@ -400,6 +438,7 @@ export async function decideApproval(params: {
   const departmentScope = await departmentScopeForProjectId(pr.project_id as string, companyId);
 
   if (bypassesDepartmentScope(actorRole) && decisionNormalized === 'rejected') {
+    debugApprovalFlow('admin force reject path', { prId: pr.id, actorUserId, actorRole });
     return performAdminRejectEntirePr({
       pr: {
         id: pr.id as string,
@@ -417,6 +456,14 @@ export async function decideApproval(params: {
     const isAssignee = approval.approver_id === actorUserId;
     const useForcePath = !isAssignee || approval.role === 'admin';
     if (useForcePath) {
+      debugApprovalFlow('admin force approve path', {
+        prId: pr.id,
+        approvalId,
+        actorUserId,
+        actorRole,
+        isAssignee,
+        approvalRole: approval.role,
+      });
       return performAdminForceApprove({
         pr: {
           id: pr.id as string,
@@ -433,14 +480,32 @@ export async function decideApproval(params: {
     }
   }
 
-  if (approval.approver_id !== actorUserId) throw new AppError('Not authorized for this approval record', 403);
-
   if (approval.role === 'admin') {
     throw new AppError(
       'This approval record is a legacy admin stage and is not part of the required chain. Use Override approval or Force approve.',
       400,
     );
   }
+
+  const isDirectAssignee = approval.approver_id === actorUserId;
+  const isDepartmentHeadPmApproval =
+    actorRole === 'dept_head' &&
+    approval.role === 'pm' &&
+    !!actorDepartment &&
+    departmentScope === actorDepartment;
+  if (!isDirectAssignee && !isDepartmentHeadPmApproval) {
+    throw new AppError('Not authorized for this approval record', 403);
+  }
+
+  await upsertRequiredApprovalRows({
+    pr: {
+      id: pr.id as string,
+      company_id: companyId,
+      amount: pr.amount as number | string,
+      project_id: pr.project_id as string,
+      duplicate_count: pr.duplicate_count as number | null,
+    },
+  });
 
   const requiredRoles = await fetchRequiredRolesForRequest(pr.id as string, companyId);
   const stageRole = approval.role as RequiredApprovalStageRole;
@@ -449,6 +514,7 @@ export async function decideApproval(params: {
   }
 
   const currentIndex = requiredRoles.indexOf(stageRole);
+  debugApprovalFlow('resolved stage order', { prId: pr.id, approvalId, stageRole, requiredRoles });
   const previousRoles = requiredRoles.slice(0, currentIndex);
   if (previousRoles.length > 0) {
     const { data: prevApprovals, error: prevErr } = await supabaseAdmin
@@ -607,6 +673,7 @@ export async function decideApproval(params: {
     return { prId: pr.id, status: 'pending' as const, approval: updatedApproval };
   }
 
+  debugApprovalFlow('finalizing fully approved PR', { prId: pr.id, actorUserId, requiredRoles });
   let rpcResult: Record<string, unknown> = {};
   try {
     rpcResult = await finalizePrBudgetAfterApprovalRpc(pr.id as string, actorUserId);
@@ -669,6 +736,7 @@ export async function adminOverridePurchaseRequest(params: {
 }) {
   const { requestId, decision, reason, actorUserId, companyId } = params;
   const decisionNormalized = decision === 'approved' ? 'approved' : 'rejected';
+  debugApprovalFlow('override requested', { requestId, decision: decisionNormalized, actorUserId, companyId });
 
   const { data: pr, error: prErr } = await supabaseAdmin
     .from('purchase_requests')

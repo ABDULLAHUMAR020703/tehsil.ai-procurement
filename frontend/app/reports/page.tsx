@@ -18,7 +18,7 @@ import {
   authedFetchWithSupabaseNoContent,
   NoSessionError,
 } from '../../lib/api';
-import { sortApprovalStageIndex } from '../../lib/org';
+import { REQUIRED_APPROVAL_STAGE_ORDER, sortApprovalStageIndex } from '../../lib/org';
 import { LastUpdatedMeta } from '../../components/LastUpdatedPanel';
 import { Calendar } from 'lucide-react';
 
@@ -100,12 +100,14 @@ function isDeptManagerRole(role: string | undefined): boolean {
   return role === 'pm' || role === 'dept_head';
 }
 
+const REQUIRED_STAGE_SET = new Set<string>(REQUIRED_APPROVAL_STAGE_ORDER);
+
 function canArchiveProject(
   p: Project,
   profile: { userId: string; role: string; department?: string | null } | null,
 ): boolean {
   if (!profile) return false;
-  if (profile.role === 'admin') return true;
+  if (profile.role === 'admin' || profile.role === 'platform_admin') return true;
   if (isDeptManagerRole(profile.role)) return !!(profile.department && profile.department === p.department_id);
   return false;
 }
@@ -115,7 +117,7 @@ function canAssignTeamLead(
   p: Project,
 ): boolean {
   if (!profile) return false;
-  if (profile.role === 'admin') return true;
+  if (profile.role === 'admin' || profile.role === 'platform_admin') return true;
   if (isDeptManagerRole(profile.role)) return !!(profile.department && profile.department === p.department_id);
   return false;
 }
@@ -127,7 +129,7 @@ function canDeletePurchaseRequest(
 ): boolean {
   if (!profile) return false;
   if (pr.status === 'approved' || pr.budget_deducted === true) return false;
-  if (profile.role === 'admin') return true;
+  if (profile.role === 'admin' || profile.role === 'platform_admin') return true;
   if (!isDeptManagerRole(profile.role)) return false;
   const dept = projectDeptById.get(pr.project_id);
   if (!dept || !profile.department) return false;
@@ -197,8 +199,8 @@ export default function ReportsPage() {
   const queryClient = useQueryClient();
   const { accessToken, profile, supabase } = useAuth();
   const token = accessToken ?? '';
-  const isAdmin = profile?.role === 'admin';
-  const canDownloadPdf = profile?.role === 'admin' || profile?.role === 'pm';
+  const isAdmin = profile?.role === 'admin' || profile?.role === 'platform_admin';
+  const canDownloadPdf = profile?.role === 'admin' || profile?.role === 'platform_admin' || profile?.role === 'pm';
 
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -255,7 +257,7 @@ export default function ReportsPage() {
 
   const { data: adminAllUsersData } = useQuery({
     queryKey: ['users', 'admin-full-list'],
-    enabled: !!token && !!supabase && profile?.role === 'admin',
+    enabled: !!token && !!supabase && isAdmin,
     queryFn: async () => {
       try {
         return await authedFetchWithSupabase<{ users: UserRow[] }>(supabase, '/api/users');
@@ -358,7 +360,7 @@ export default function ReportsPage() {
         (r) =>
           r.request_id === prId &&
           r.status === 'pending' &&
-          (r.role === 'team_lead' || r.role === 'pm'),
+          REQUIRED_STAGE_SET.has(r.role),
       );
       pending.sort((a, b) => sortApprovalStageIndex(a.role) - sortApprovalStageIndex(b.role));
       if (pending[0]) map.set(prId, pending[0].id);
@@ -393,7 +395,7 @@ export default function ReportsPage() {
 
   const teamLeadCandidatesForDept = (dept: string) => {
     const pool =
-      profile?.role === 'admin' ? (adminAllUsersData?.users ?? []) : (deptUsersData?.users ?? []);
+      isAdmin ? (adminAllUsersData?.users ?? []) : (deptUsersData?.users ?? []);
     return pool.filter((u) => u.role !== 'admin' && u.department === dept);
   };
 
@@ -479,14 +481,19 @@ export default function ReportsPage() {
         throw e;
       }
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       setOverrideTarget(null);
       setOverrideReason('');
       setOverrideDecision('approved');
-      queryClient.invalidateQueries({ queryKey: ['purchase-requests'] });
-      queryClient.invalidateQueries({ queryKey: ['approvals'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['purchase-requests'] }),
+        queryClient.invalidateQueries({ queryKey: ['approvals'] }),
+        queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+        queryClient.invalidateQueries({ queryKey: ['projects'] }),
+        queryClient.refetchQueries({ queryKey: ['purchase-requests'], type: 'active' }),
+        queryClient.refetchQueries({ queryKey: ['approvals'], type: 'active' }),
+        queryClient.refetchQueries({ queryKey: ['dashboard'], type: 'active' }),
+      ]);
     },
     onError: (e: unknown) => setListError(e instanceof Error ? e.message : 'Override failed'),
   });
@@ -508,11 +515,16 @@ export default function ReportsPage() {
         throw e;
       }
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['purchase-requests'] });
-      queryClient.invalidateQueries({ queryKey: ['approvals'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['purchase-requests'] }),
+        queryClient.invalidateQueries({ queryKey: ['approvals'] }),
+        queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+        queryClient.invalidateQueries({ queryKey: ['projects'] }),
+        queryClient.refetchQueries({ queryKey: ['purchase-requests'], type: 'active' }),
+        queryClient.refetchQueries({ queryKey: ['approvals'], type: 'active' }),
+        queryClient.refetchQueries({ queryKey: ['dashboard'], type: 'active' }),
+      ]);
     },
     onError: (e: unknown) => setListError(e instanceof Error ? e.message : 'Force approve failed'),
   });

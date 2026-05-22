@@ -15,6 +15,7 @@ import { authedFetchWithSupabase, NoSessionError } from '../../lib/api';
 import { LastUpdatedMeta } from '../../components/LastUpdatedPanel';
 import { useState } from 'react';
 import {
+  REQUIRED_APPROVAL_STAGE_ORDER,
   approvalPipelineStatus,
   approvalStageLabel,
   sortApprovalStageIndex,
@@ -44,6 +45,23 @@ type Approval = {
   purchase_request?: PurchaseRequestMeta | null;
 };
 
+type ApprovalMutationResult = {
+  ok?: boolean;
+  result?: {
+    prId?: string;
+    status?: string;
+    approval?: { id?: string; request_id?: string } | null;
+  };
+};
+
+const REQUIRED_STAGE_SET = new Set<string>(REQUIRED_APPROVAL_STAGE_ORDER);
+
+function debugApprovalUi(message: string, payload?: Record<string, unknown>) {
+  if (process.env.NEXT_PUBLIC_DEBUG_APPROVALS !== '1') return;
+  // eslint-disable-next-line no-console
+  console.log(`[approvals-ui] ${message}`, payload ?? {});
+}
+
 function duplicateRequestFrameClass(dc: number): string {
   if (dc >= 4) return 'border-red-500/55 ring-1 ring-red-500/35';
   if (dc === 3) return 'border-orange-500/55 ring-1 ring-orange-500/35';
@@ -70,7 +88,19 @@ export default function ApprovalsPage() {
   const [overrideTarget, setOverrideTarget] = useState<string | null>(null);
   const [overrideDecision, setOverrideDecision] = useState<'approved' | 'rejected'>('approved');
   const [overrideReason, setOverrideReason] = useState('');
-  const isAdmin = profile?.role === 'admin';
+  const isAdmin = profile?.role === 'admin' || profile?.role === 'platform_admin';
+
+  const refreshApprovalState = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['approvals'] }),
+      queryClient.invalidateQueries({ queryKey: ['purchase-requests'] }),
+      queryClient.invalidateQueries({ queryKey: ['projects'] }),
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+      queryClient.refetchQueries({ queryKey: ['approvals'], type: 'active' }),
+      queryClient.refetchQueries({ queryKey: ['purchase-requests'], type: 'active' }),
+      queryClient.refetchQueries({ queryKey: ['dashboard'], type: 'active' }),
+    ]);
+  };
 
   const { data, isLoading, isFetching, error } = useQuery({
     queryKey: ['approvals', 'mine'],
@@ -116,7 +146,7 @@ export default function ApprovalsPage() {
   const decisionMutation = useMutation({
     mutationFn: async (params: { approvalId: string; decision: 'approved' | 'rejected' }) => {
       try {
-        return await authedFetchWithSupabase<unknown>(
+        return await authedFetchWithSupabase<ApprovalMutationResult>(
           supabase,
           '/api/approvals/' + params.approvalId + '/decision',
           {
@@ -133,18 +163,25 @@ export default function ApprovalsPage() {
         throw e;
       }
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['approvals'] });
-      queryClient.invalidateQueries({ queryKey: ['purchase-requests'] });
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    onSuccess: async (res, params) => {
+      debugApprovalUi('decision success', { params, response: res });
+      const prId = res.result?.prId;
+      queryClient.setQueryData<{ approvals: Approval[] }>(['approvals', 'mine'], (old) => {
+        if (!old) return old;
+        return {
+          approvals: old.approvals.filter((row) =>
+            prId ? row.request_id !== prId : row.id !== params.approvalId,
+          ),
+        };
+      });
+      await refreshApprovalState();
     },
   });
 
   const overrideMutation = useMutation({
     mutationFn: async (params: { requestId: string; decision: 'approved' | 'rejected'; reason: string }) => {
       try {
-        return await authedFetchWithSupabase<unknown>(supabase, '/api/approvals/override', {
+        return await authedFetchWithSupabase<ApprovalMutationResult>(supabase, '/api/approvals/override', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(params),
@@ -154,14 +191,16 @@ export default function ApprovalsPage() {
         throw e;
       }
     },
-    onSuccess: () => {
+    onSuccess: async (_res, params) => {
+      debugApprovalUi('override success', { params });
       setOverrideTarget(null);
       setOverrideReason('');
       setOverrideDecision('approved');
-      queryClient.invalidateQueries({ queryKey: ['approvals'] });
-      queryClient.invalidateQueries({ queryKey: ['purchase-requests'] });
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.setQueryData<{ approvals: Approval[] }>(['approvals', 'mine'], (old) => {
+        if (!old) return old;
+        return { approvals: old.approvals.filter((row) => row.request_id !== params.requestId) };
+      });
+      await refreshApprovalState();
     },
   });
 
@@ -215,7 +254,7 @@ export default function ApprovalsPage() {
                 {(() => {
                   const chain = approvalsByRequest?.[a.request_id] ?? [a];
                   const requiredChain = chain
-                    .filter((step) => step.role === 'team_lead' || step.role === 'pm')
+                    .filter((step) => REQUIRED_STAGE_SET.has(step.role))
                     .sort((x, y) => sortApprovalStageIndex(x.role) - sortApprovalStageIndex(y.role));
                   const legacyAdminRows = chain.filter((step) => step.role === 'admin');
                   const currentStep = requiredChain.find((step) => step.status === 'pending');
@@ -258,7 +297,7 @@ export default function ApprovalsPage() {
                         </TableWrapper>
                       </div>
                       <div className="rounded-lg border border-stone-200/90 dark:border-stone-600/70 bg-orange-50/35 dark:bg-stone-800/50 p-3">
-                        <div className="text-xs text-muted-foreground mb-2">Required approval chain (Team Lead → PM)</div>
+                        <div className="text-xs text-muted-foreground mb-2">Required approval chain</div>
                         <div className="flex flex-wrap items-center gap-2 text-xs">
                           {requiredChain.map((step) => {
                             const isCurrent = currentStep?.id === step.id;

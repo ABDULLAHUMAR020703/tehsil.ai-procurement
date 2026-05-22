@@ -482,7 +482,8 @@ purchaseRequestsRouter.get(
 
       const currentStage =
         enrichedApprovals.find(
-          (a) => a.status === 'pending' && (a.role === 'team_lead' || a.role === 'pm'),
+          (a) =>
+            a.status === 'pending' && (a.role === 'team_lead' || a.role === 'pm'),
         )?.role ?? null;
 
       const [prAudit] = await attachLastUpdatedFields('purchase_request', [pr], cid);

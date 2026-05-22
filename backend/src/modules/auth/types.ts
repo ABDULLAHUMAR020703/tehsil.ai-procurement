@@ -4,7 +4,7 @@ export function isPlatformAdminRole(role: UserRole | string): boolean {
   return String(role ?? '').trim().toLowerCase() === 'platform_admin';
 }
 
-/** PM or department head — same department-scoped project and PO privileges. */
+/** PM or department head - same department-scoped project and PO privileges. */
 export function isDeptManagerRole(role: UserRole): boolean {
   return role === 'pm' || role === 'dept_head';
 }

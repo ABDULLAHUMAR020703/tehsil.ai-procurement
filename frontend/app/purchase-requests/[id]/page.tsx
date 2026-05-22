@@ -100,7 +100,7 @@ export default function PurchaseRequestDetailsPage() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['purchase-request-detail', requestId],
     enabled: !!accessToken && !!supabase && !!requestId && isAdmin,
-    staleTime: 60 * 1000,
+    staleTime: 0,
     queryFn: async () => {
       try {
         return await authedFetchWithSupabase<DetailResponse>(supabase, `/api/purchase-requests/${requestId}`);
@@ -128,12 +128,18 @@ export default function PurchaseRequestDetailsPage() {
         throw e;
       }
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       setOverrideReason('');
-      queryClient.invalidateQueries({ queryKey: ['purchase-request-detail', requestId] });
-      queryClient.invalidateQueries({ queryKey: ['purchase-requests'] });
-      queryClient.invalidateQueries({ queryKey: ['approvals'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['purchase-request-detail', requestId] }),
+        queryClient.invalidateQueries({ queryKey: ['purchase-requests'] }),
+        queryClient.invalidateQueries({ queryKey: ['approvals'] }),
+        queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+        queryClient.refetchQueries({ queryKey: ['purchase-request-detail', requestId], type: 'active' }),
+        queryClient.refetchQueries({ queryKey: ['purchase-requests'], type: 'active' }),
+        queryClient.refetchQueries({ queryKey: ['approvals'], type: 'active' }),
+        queryClient.refetchQueries({ queryKey: ['dashboard'], type: 'active' }),
+      ]);
     },
   });
 
