@@ -33,6 +33,7 @@ const PO_INSERT_COLUMNS = new Set<string>([
   'uploaded_by',
   'updated_by',
   'department',
+  'status',
   ...Object.values(OPTIONAL_HEADER_TO_COLUMN),
 ]);
 
@@ -100,6 +101,7 @@ export function lineItemToPayload(
     po_invoiced,
     po_acceptance_approved,
     pending_to_apply,
+    status: 'active',
     po_acceptance_pending:
       row.extras.po_acceptance_pending !== undefined
         ? num(row.extras.po_acceptance_pending, 0)
@@ -163,6 +165,9 @@ export async function handleLineItemUpload(params: {
   inserted: number;
   updated: number;
   failed: number;
+  cancelled: number;
+  cancelledPos: string[];
+  cancelledAt: string;
   firstEntityId: string | null;
   failures: string[];
 }> {
@@ -284,11 +289,56 @@ export async function handleLineItemUpload(params: {
     });
   }
 
+  // Mark POs absent from this upload as cancelled.
+  // Scope: if uploader is a dept manager, only cancel within their department.
+  let cancelled = 0;
+  let cancelledPos: string[] = [];
+  const cancelledAt = new Date().toISOString();
+  try {
+    const uploadedPos = new Set(rows.map((r) => r.po).filter(Boolean));
+    let cancelQuery = supabaseAdmin
+      .from('purchase_orders')
+      .select('po')
+      .eq('company_id', companyId)
+      .neq('status', 'cancelled');
+    if (enforceDept) cancelQuery = cancelQuery.eq('department', enforceDept);
+    const { data: existingPoRows, error: fetchErr } = await cancelQuery;
+    if (!fetchErr && existingPoRows) {
+      const missingPos = [...new Set((existingPoRows as { po: string | null }[]).map((r) => r.po).filter((p): p is string => !!p && !uploadedPos.has(p)))];
+      if (missingPos.length > 0) {
+        const CANCEL_CHUNK = 200;
+        for (let i = 0; i < missingPos.length; i += CANCEL_CHUNK) {
+          const chunk = missingPos.slice(i, i + CANCEL_CHUNK);
+          let q = supabaseAdmin
+            .from('purchase_orders')
+            .update({ status: 'cancelled', updated_by: actorUserId })
+            .eq('company_id', companyId)
+            .in('po', chunk)
+            .select('id');
+          if (enforceDept) q = q.eq('department', enforceDept);
+          const { data: cancelledRows, error: cancelErr } = await q;
+          if (!cancelErr) {
+            cancelled += cancelledRows?.length ?? 0;
+            cancelledPos = cancelledPos.concat(chunk);
+          } else if (req) {
+            logPoUpload(req, 'cancel_chunk_error', { error: cancelErr.message });
+          }
+        }
+      }
+    }
+    if (req) logPoUpload(req, 'cancel_complete', { cancelled, cancelledPos });
+  } catch (cancelErr) {
+    if (req) logPoUpload(req, 'cancel_failed', { error: cancelErr instanceof Error ? cancelErr.message : String(cancelErr) });
+  }
+
   return {
     totalRows: rows.length,
     inserted,
     updated,
     failed,
+    cancelled,
+    cancelledPos,
+    cancelledAt,
     firstEntityId,
     failures: failures.slice(0, 10),
   };

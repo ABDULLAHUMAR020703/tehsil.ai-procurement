@@ -119,6 +119,9 @@ async function handlePoUpload(
         inserted: result.inserted,
         updated: result.updated,
         failed: result.failed,
+        cancelled: result.cancelled,
+        cancelledPos: result.cancelledPos.length > 0 ? result.cancelledPos : undefined,
+        cancelledAt: result.cancelledPos.length > 0 ? result.cancelledAt : undefined,
         failures: result.failures,
         warnings: warnings.length > 0 ? warnings : undefined,
       });

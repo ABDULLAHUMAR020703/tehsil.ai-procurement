@@ -19,6 +19,9 @@ type UploadResult = {
   inserted?: number;
   updated?: number;
   failed?: number;
+  cancelled?: number;
+  cancelledPos?: string[];
+  cancelledAt?: string;
   skipped?: number;
   duplicatesHandled?: string[];
   failures?: string[];
@@ -108,10 +111,27 @@ export default function PoUploadPage() {
                     <li>Inserted: {result.inserted ?? 0}</li>
                     <li>Updated: {result.updated ?? 0}</li>
                     <li>Failed: {result.failed ?? 0}</li>
+                    {result.mode === 'line_items' && (result.cancelled ?? 0) > 0 ? (
+                      <li className="text-amber-700 dark:text-amber-400">Cancelled (not in sheet): {result.cancelled}</li>
+                    ) : null}
                     {result.mode === 'legacy_vendor' && result.skipped != null ? (
                       <li>Vendor merge (extra rows): {result.skipped}</li>
                     ) : null}
                   </ul>
+                  {result.mode === 'line_items' && result.cancelledPos && result.cancelledPos.length > 0 ? (
+                    <div className="rounded-lg border border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 p-3 space-y-1">
+                      <div className="text-xs font-semibold text-amber-900 dark:text-amber-200">
+                        Cancelled on {result.cancelledAt
+                          ? new Date(result.cancelledAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+                          : 'this upload'}
+                      </div>
+                      <ul className="text-xs text-amber-900 dark:text-amber-200 space-y-0.5 list-disc pl-4">
+                        {result.cancelledPos.map((po) => (
+                          <li key={po}>{po}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
                   {result.mode === 'legacy_vendor' && result.duplicatesHandled && result.duplicatesHandled.length > 0 ? (
                     <div className="text-xs text-emerald-800/90 dark:text-emerald-300/90">
                       Vendors merged: {result.duplicatesHandled.join(', ')}
