@@ -117,11 +117,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen flex text-stone-800 dark:text-stone-100 font-sans relative overflow-hidden bg-transparent">
+    <div className="min-h-screen md:pl-72 text-stone-800 dark:text-stone-100 font-sans relative overflow-x-hidden bg-transparent">
       <InteractiveBackground />
-      
+
       {/* Mobile Menu Toggle */}
-      <div className="md:hidden absolute top-4 right-4 z-50">
+      <div className="md:hidden fixed top-4 right-4 z-50">
         <Button variant="ghost" size="icon" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
           {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
         </Button>
@@ -129,14 +129,14 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
       {/* Backdrop for mobile */}
       {mobileMenuOpen && (
-        <div 
+        <div
           className="fixed inset-0 z-40 bg-stone-900/50 backdrop-blur-sm md:hidden"
           onClick={() => setMobileMenuOpen(false)}
         />
       )}
 
       <aside className={cn(
-        "fixed inset-y-0 left-0 md:sticky md:top-0 z-50 w-72 border-r border-stone-200/90 dark:border-stone-700/80 bg-[var(--surface)]/92 dark:bg-stone-900/90 backdrop-blur-md px-4 py-6 flex flex-col h-screen shadow-md shadow-stone-200/30 dark:shadow-stone-950/50 transition-transform duration-300 ease-in-out md:translate-x-0",
+        "fixed inset-y-0 left-0 z-50 w-72 border-r border-stone-200/90 dark:border-stone-700/80 bg-[var(--surface)]/92 dark:bg-stone-900/90 backdrop-blur-md px-4 py-6 flex flex-col h-screen shadow-md shadow-stone-200/30 dark:shadow-stone-950/50 transition-transform duration-300 ease-in-out md:translate-x-0",
         mobileMenuOpen ? "translate-x-0" : "-translate-x-full"
       )}>
         <div className="mb-6 px-3 shrink-0 flex items-start justify-between gap-2 min-w-0">
@@ -240,7 +240,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      <main className="flex-1 min-w-0 z-10 relative">
+      <main className="relative z-10 min-h-screen">
         <div className="p-6 md:p-8">{children}</div>
       </main>
     </div>
