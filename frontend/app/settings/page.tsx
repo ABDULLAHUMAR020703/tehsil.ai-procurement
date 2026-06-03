@@ -13,10 +13,11 @@ import {
   UserPermissionsPanel,
   type UserPermissionMatrixRow,
 } from '../../components/settings/UserPermissionsPanel';
+import { UsersSettingsPanel } from '../../components/settings/UsersSettingsPanel';
 import { cn } from '@/lib/ui';
 import { authedFetchWithSupabase, NoSessionError } from '@/lib/api';
 
-type SettingsTab = 'departments' | 'permissions';
+type SettingsTab = 'departments' | 'permissions' | 'users';
 
 export default function SettingsPage() {
   const { profile, supabase, loading } = useAuth();
@@ -89,13 +90,15 @@ export default function SettingsPage() {
           </button>
           <button
             type="button"
-            disabled
-            className="rounded-t-lg px-4 py-2 text-sm font-medium text-stone-400 dark:text-stone-500 cursor-not-allowed opacity-70 border-b-2 border-transparent"
+            onClick={() => setActiveTab('users')}
+            className={cn(
+              'rounded-t-lg px-4 py-2 text-sm font-medium transition-all border-b-2 -mb-px',
+              activeTab === 'users'
+                ? 'border-orange-500 text-orange-950 dark:text-orange-100 bg-orange-50 dark:bg-orange-950/40 shadow-sm'
+                : 'border-transparent text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200',
+            )}
           >
             Users
-            <span className="ml-2 text-[10px] uppercase tracking-wider text-stone-500 dark:text-stone-500">
-              Soon
-            </span>
           </button>
           <button
             type="button"
@@ -110,6 +113,7 @@ export default function SettingsPage() {
         </div>
 
         {activeTab === 'departments' ? <DepartmentsSettingsPanel supabase={supabase} /> : null}
+        {activeTab === 'users' ? <UsersSettingsPanel supabase={supabase} /> : null}
         {activeTab === 'permissions' ? (
           <UserPermissionsPanel
             supabase={supabase}

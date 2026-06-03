@@ -67,6 +67,58 @@ usersRouter.get('/', requireRole('admin', 'pm', 'dept_head', 'platform_admin'), 
   }
 });
 
+const CreateUserSchema = z.object({
+  name: z.string().min(1).max(200),
+  email: z.string().email(),
+  password: z.string().min(6).max(128),
+  role: RoleSchema,
+  department: DepartmentCodeSchema.optional(),
+});
+
+usersRouter.post('/', requireRole('admin', 'platform_admin'), async (req, res, next) => {
+  try {
+    const parsed = CreateUserSchema.parse(req.body ?? {});
+    const companyId = companyScopeForRequest(req);
+
+    if (parsed.role !== 'admin' && parsed.role !== 'platform_admin' && !parsed.department) {
+      throw new AppError('Department is required for non-admin roles', 400);
+    }
+
+    const department =
+      parsed.role === 'admin' || parsed.role === 'platform_admin'
+        ? 'management'
+        : parsed.department!;
+
+    if (parsed.role !== 'admin' && parsed.role !== 'platform_admin') {
+      await assertDepartmentExists(department, companyId);
+    }
+
+    const { data: authData, error: authErr } = await supabaseAdmin.auth.admin.createUser({
+      email: parsed.email,
+      password: parsed.password,
+      email_confirm: true,
+      user_metadata: { name: parsed.name },
+    });
+    if (authErr) throw new AppError(authErr.message, 400);
+    const authUserId = authData.user.id;
+
+    const { data: userRow, error: insertErr } = await supabaseAdmin
+      .from('users')
+      .insert({ id: authUserId, name: parsed.name, email: parsed.email, role: parsed.role, department, company_id: companyId })
+      .select('id,name,email,role,department,created_at')
+      .single();
+
+    if (insertErr) {
+      await supabaseAdmin.auth.admin.deleteUser(authUserId);
+      throw new AppError(`Failed to create user record: ${insertErr.message}`, 500);
+    }
+
+    res.status(201).json({ user: userRow });
+  } catch (err) {
+    next(err);
+  }
+});
+
 const PatchUserSchema = z.object({
   role: RoleSchema.optional(),
   department: DepartmentCodeSchema.optional(),
