@@ -136,16 +136,16 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       )}
 
       <aside className={cn(
-        "fixed md:static inset-y-0 left-0 z-50 w-72 border-r border-stone-200/90 dark:border-stone-700/80 bg-[var(--surface)]/92 dark:bg-stone-900/90 backdrop-blur-md px-4 py-6 flex flex-col min-h-screen shadow-md shadow-stone-200/30 dark:shadow-stone-950/50 transition-transform duration-300 ease-in-out md:translate-x-0",
+        "fixed inset-y-0 left-0 md:sticky md:top-0 z-50 w-72 border-r border-stone-200/90 dark:border-stone-700/80 bg-[var(--surface)]/92 dark:bg-stone-900/90 backdrop-blur-md px-4 py-6 flex flex-col h-screen shadow-md shadow-stone-200/30 dark:shadow-stone-950/50 transition-transform duration-300 ease-in-out md:translate-x-0",
         mobileMenuOpen ? "translate-x-0" : "-translate-x-full"
       )}>
-        <div className="mb-6 px-3 shrink-0 flex items-start justify-between gap-2">
+        <div className="mb-6 px-3 shrink-0 flex items-start justify-between gap-2 min-w-0">
           <BrandLogo size="md">
-            <div>
-              <div className="text-sm font-bold tracking-tight text-stone-900 dark:text-stone-50">{APP_NAME}</div>
+            <div className="min-w-0 overflow-hidden">
+              <div className="text-sm font-bold tracking-tight text-stone-900 dark:text-stone-50 truncate">{APP_NAME}</div>
               <div className="text-[10px] tracking-wider text-stone-500 dark:text-stone-400 font-medium">Procurement</div>
               {profile?.companyName ? (
-                <div className="text-[10px] font-semibold text-orange-700 dark:text-orange-300/90 mt-0.5 truncate max-w-[10rem]">
+                <div className="text-[10px] font-semibold text-orange-700 dark:text-orange-300/90 mt-0.5 truncate">
                   {profile.companyName}
                 </div>
               ) : null}

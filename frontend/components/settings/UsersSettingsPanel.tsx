@@ -212,7 +212,7 @@ export function UsersSettingsPanel({ supabase }: Props) {
                         variant="secondary"
                         className="p-2 rounded-lg border-rose-200 dark:border-rose-800/60 hover:border-rose-400 dark:hover:border-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40"
                         title="Delete user"
-                        disabled={u.id === profile?.id}
+                        disabled={u.id === profile?.userId}
                         onClick={() => setDeleteTarget(u)}
                       >
                         <Trash2 className="w-4 h-4 text-rose-600 dark:text-rose-400" aria-hidden />
