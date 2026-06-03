@@ -3,15 +3,16 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
-import { Plus, UserPlus } from 'lucide-react';
+import { Plus, Trash2, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { Modal } from '../ui/Modal';
 import { Table, TBody, TD, TH, THead, TR, TableWrapper } from '../ui/Table';
-import { ApiError, authedFetchWithSupabase, NoSessionError } from '@/lib/api';
+import { ApiError, authedFetchWithSupabase, authedFetchWithSupabaseNoContent, NoSessionError } from '@/lib/api';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { UserRole } from '@/features/auth/AuthProvider';
+import { useAuth } from '@/features/auth/AuthProvider';
 
 const ROLES: UserRole[] = ['admin', 'pm', 'dept_head', 'employee'];
 
@@ -27,7 +28,9 @@ type Props = { supabase: SupabaseClient | null };
 export function UsersSettingsPanel({ supabase }: Props) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { profile } = useAuth();
   const [addOpen, setAddOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<UserRow | null>(null);
 
   // form state
   const [name, setName] = useState('');
@@ -105,6 +108,20 @@ export function UsersSettingsPanel({ supabase }: Props) {
     },
   });
 
+  const deleteUserMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await authedFetchWithSupabaseNoContent(supabase!, `/api/users/${id}`, { method: 'DELETE' });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+      toast.success('User deleted');
+      setDeleteTarget(null);
+    },
+    onError: (e) => {
+      toast.error(e instanceof ApiError ? e.message : 'Failed to delete user');
+    },
+  });
+
   function resetForm() {
     setName('');
     setEmail('');
@@ -171,12 +188,13 @@ export function UsersSettingsPanel({ supabase }: Props) {
                   <TH>Email</TH>
                   <TH>Role</TH>
                   <TH>Department</TH>
+                  <TH className="w-16 text-right">Delete</TH>
                 </TR>
               </THead>
               <TBody>
                 {users.length === 0 ? (
                   <TR>
-                    <TD colSpan={4} className="text-center text-sm text-muted-foreground py-8">No users found.</TD>
+                    <TD colSpan={5} className="text-center text-sm text-muted-foreground py-8">No users found.</TD>
                   </TR>
                 ) : users.map((u) => (
                   <TR key={u.id} className="hover:bg-orange-50/70 dark:hover:bg-stone-800/55 transition-colors">
@@ -188,6 +206,18 @@ export function UsersSettingsPanel({ supabase }: Props) {
                       </span>
                     </TD>
                     <TD className="text-xs text-stone-600 dark:text-stone-400 capitalize">{u.department ?? '—'}</TD>
+                    <TD className="text-right">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="p-2 rounded-lg border-rose-200 dark:border-rose-800/60 hover:border-rose-400 dark:hover:border-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                        title="Delete user"
+                        disabled={u.id === profile?.id}
+                        onClick={() => setDeleteTarget(u)}
+                      >
+                        <Trash2 className="w-4 h-4 text-rose-600 dark:text-rose-400" aria-hidden />
+                      </Button>
+                    </TD>
                   </TR>
                 ))}
               </TBody>
@@ -195,6 +225,35 @@ export function UsersSettingsPanel({ supabase }: Props) {
           </TableWrapper>
         </Card>
       )}
+
+      <Modal
+        open={deleteTarget != null}
+        onClose={() => !deleteUserMutation.isPending && setDeleteTarget(null)}
+        title="Delete user"
+      >
+        {deleteTarget ? (
+          <div className="space-y-4">
+            <p className="text-sm text-stone-600 dark:text-stone-400">
+              Are you sure you want to delete{' '}
+              <span className="font-semibold text-stone-900 dark:text-stone-100">{deleteTarget.name}</span>?{' '}
+              This will remove their account permanently and they will no longer be able to log in.
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="secondary" disabled={deleteUserMutation.isPending} onClick={() => setDeleteTarget(null)}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="danger"
+                disabled={deleteUserMutation.isPending}
+                onClick={() => deleteUserMutation.mutate(deleteTarget.id)}
+              >
+                {deleteUserMutation.isPending ? 'Deleting…' : 'Delete user'}
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
 
       <Modal open={addOpen} onClose={() => !createUserMutation.isPending && setAddOpen(false)} title="Add user">
         <form className="space-y-4" onSubmit={handleSubmit}>

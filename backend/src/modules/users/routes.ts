@@ -184,3 +184,37 @@ usersRouter.patch('/:id', requireRole('admin', 'platform_admin'), async (req, re
     next(err);
   }
 });
+
+usersRouter.delete('/:id', requireRole('admin', 'platform_admin'), async (req, res, next) => {
+  try {
+    const userId = z.string().uuid().parse(req.params.id);
+    const actorId = req.auth!.userId;
+
+    if (userId === actorId) {
+      throw new AppError('You cannot delete your own account', 400);
+    }
+
+    const tenantAuth = req.auth as TenantAuth;
+
+    // Verify user belongs to the same company before doing anything
+    const { data: row, error: loadErr } = await applyTenantEq(
+      supabaseAdmin.from('users').select('id, company_id').eq('id', userId),
+      tenantAuth,
+    ).single();
+    if (loadErr || !row) throw new AppError('User not found', 404);
+
+    // Delete from public.users first (FK constraints); auth user deletion follows
+    const { error: delErr } = await applyTenantEq(
+      supabaseAdmin.from('users').delete().eq('id', userId),
+      tenantAuth,
+    );
+    if (delErr) throw delErr;
+
+    // Delete from Supabase Auth — best-effort, don't fail the request if this errors
+    await supabaseAdmin.auth.admin.deleteUser(userId).catch(() => null);
+
+    res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
+});
