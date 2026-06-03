@@ -140,7 +140,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         mobileMenuOpen ? "translate-x-0" : "-translate-x-full"
       )}>
         <div className="mb-6 px-3 shrink-0 flex items-start justify-between gap-2 min-w-0">
-          <BrandLogo size="md">
+          <BrandLogo size="md" className="min-w-0">
             <div className="min-w-0 overflow-hidden">
               <div className="text-sm font-bold tracking-tight text-stone-900 dark:text-stone-50 truncate">{APP_NAME}</div>
               <div className="text-[10px] tracking-wider text-stone-500 dark:text-stone-400 font-medium">Procurement</div>
