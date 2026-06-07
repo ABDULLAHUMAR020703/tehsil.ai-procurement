@@ -98,6 +98,12 @@ function parseNullableMoney(value: unknown): number | null {
   if (typeof value === 'string' && isDashPlaceholder(value)) return null;
   return parseMoney(value);
 }
+
+function parseNullableAmount(value: unknown): number | null {
+  const parsed = parseNullableMoney(value);
+  if (parsed === 0) return null;
+  return parsed;
+}
 function parseOptionalInt(value: unknown): number | undefined {
   if (value === null || value === undefined || value === '') return undefined;
   if (typeof value === 'number' && Number.isInteger(value)) return value;
@@ -139,7 +145,7 @@ function toRowFromObject(obj: Record<string, unknown>): ParsedPoRow {
 
   const po_number = String(obj[poKey] ?? '').trim();
   const vendor = String(obj[vendorKey] ?? '').trim();
-  const total_value = parseNullableMoney(obj[totalKey]);
+  const total_value = parseNullableAmount(obj[totalKey]);
 
   if (!po_number) throw new AppError('po_number cannot be empty', 400);
   if (!is_cancelled) {
@@ -168,7 +174,7 @@ function lineItemFromObject(
   const item_code = String(getByCanon(obj, headerNormToOrig, 'itemcode') ?? '').trim();
   const description = String(getByCanon(obj, headerNormToOrig, 'description') ?? '').trim();
   const unit_price = parseNullableMoney(getByCanon(obj, headerNormToOrig, 'unitprice'));
-  const po_amount = parseNullableMoney(getByCanon(obj, headerNormToOrig, 'poamount'));
+  const po_amount = parseNullableAmount(getByCanon(obj, headerNormToOrig, 'poamount'));
 
   if (!po_line_sn) throw new AppError('PO+LINE+SN cannot be empty', 400);
   if (!po) throw new AppError('PO cannot be empty', 400);
