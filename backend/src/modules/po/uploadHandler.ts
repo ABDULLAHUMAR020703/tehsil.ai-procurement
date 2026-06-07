@@ -67,7 +67,6 @@ function pickPoRowPayload(payload: Record<string, unknown>): Record<string, unkn
 
 const UPSERT_CONCURRENCY = 20;
 const CANCEL_CHUNK = 200;
-const LOOKUP_CHUNK = 200;
 
 function num(v: unknown, fallback: number): number {
   const n = typeof v === 'number' ? v : Number(v);
@@ -243,19 +242,44 @@ function payloadVariants(payload: Record<string, unknown>): Record<string, unkno
   );
 }
 
-async function upsertOnePoRow(payload: Record<string, unknown>): Promise<string | null> {
+function isPoRowConflictError(err: unknown): boolean {
+  if (isDuplicateKeyError(err)) return true;
+  const msg = postgrestErrorMessage(err).toLowerCase();
+  return (
+    msg.includes('duplicate key') ||
+    msg.includes('unique constraint') ||
+    msg.includes('on conflict') ||
+    msg.includes('already exists')
+  );
+}
+
+async function insertOnePoRow(payload: Record<string, unknown>): Promise<string | null> {
   let lastErr: unknown;
   for (const row of payloadVariants(payload)) {
-    const { data, error } = await supabaseAdmin
-      .from('purchase_orders')
-      .upsert(row, { onConflict: 'company_id,po_line_sn' })
-      .select('id')
-      .single();
+    const { data, error } = await supabaseAdmin.from('purchase_orders').insert(row).select('id').single();
     if (!error) return (data?.id as string | undefined) ?? null;
     lastErr = error;
     if (!isMissingColumnError(error)) break;
   }
   throw lastErr;
+}
+
+async function findExistingRowByLineKey(
+  companyId: string,
+  lineKey: string,
+  cache: Record<string, unknown>[],
+): Promise<Record<string, unknown> | null> {
+  const fromCache = cache.find((row) => rowMatchesPoLineKey(row, lineKey));
+  if (fromCache) return fromCache;
+
+  const lookupKeys = expandPoLineLookupKeys(lineKey);
+  const { data, error } = await supabaseAdmin
+    .from('purchase_orders')
+    .select('id, status, is_active, uploaded_at, po_line_sn, po, line_no, sn')
+    .eq('company_id', companyId)
+    .in('po_line_sn', lookupKeys);
+  if (error) throwSupabaseError(error);
+  return (data ?? []).find((row) => rowMatchesPoLineKey(row, lineKey)) ?? null;
 }
 
 async function updatePoRowById(
@@ -282,22 +306,23 @@ async function fetchExistingByLineKeys(
   canonicalKeys: string[],
 ): Promise<Map<string, Record<string, unknown>>> {
   const map = new Map<string, Record<string, unknown>>();
-  const lookupKeys = [...new Set(canonicalKeys.flatMap((k) => expandPoLineLookupKeys(k)))];
-  const fetchedRows: Record<string, unknown>[] = [];
+  const allRows: Record<string, unknown>[] = [];
+  const PAGE = 1000;
 
-  for (let i = 0; i < lookupKeys.length; i += LOOKUP_CHUNK) {
-    const chunk = lookupKeys.slice(i, i + LOOKUP_CHUNK);
+  for (let offset = 0; ; offset += PAGE) {
     const { data, error } = await supabaseAdmin
       .from('purchase_orders')
       .select('*')
       .eq('company_id', companyId)
-      .in('po_line_sn', chunk);
+      .range(offset, offset + PAGE - 1);
     if (error) throwSupabaseError(error);
-    fetchedRows.push(...((data ?? []) as Record<string, unknown>[]));
+    const batch = (data ?? []) as Record<string, unknown>[];
+    allRows.push(...batch);
+    if (batch.length < PAGE) break;
   }
 
   for (const key of canonicalKeys) {
-    const match = fetchedRows.find((row) => rowMatchesPoLineKey(row, key));
+    const match = allRows.find((row) => rowMatchesPoLineKey(row, key));
     if (match) map.set(key, match);
   }
 
@@ -372,6 +397,7 @@ export async function handleLineItemUpload(params: {
 
   const lineKeys = rows.map((r) => r.po_line_key);
   const existingByKey = await fetchExistingByLineKeys(companyId, lineKeys);
+  const existingRowCache = [...existingByKey.values()];
 
   let inserted = 0;
   let updated = 0;
@@ -439,20 +465,14 @@ export async function handleLineItemUpload(params: {
         return;
       }
 
-      const newId = await upsertOnePoRow(job.payload);
+      const newId = await insertOnePoRow(job.payload);
       outcomes.push({ kind: 'inserted', isActive, entityId: newId ?? undefined });
       if (req) logPoUpload(req, 'po_inserted', { key: label, uploadBatchId });
     } catch (err) {
-      if (isDuplicateKeyError(err)) {
+      if (isPoRowConflictError(err)) {
         if (req) logPoUpload(req, 'duplicate_detected', { key: label, uploadBatchId });
         try {
-          const { data: found, error: findErr } = await supabaseAdmin
-            .from('purchase_orders')
-            .select('id, status, is_active, uploaded_at, po_line_sn, po, line_no, sn')
-            .eq('company_id', companyId)
-            .in('po_line_sn', expandPoLineLookupKeys(job.row.po_line_key));
-          if (findErr) throw findErr;
-          const match = (found ?? []).find((row) => rowMatchesPoLineKey(row, job.row.po_line_key));
+          const match = await findExistingRowByLineKey(companyId, job.row.po_line_key, existingRowCache);
           if (match?.id) {
             const retryPayload = {
               ...job.payload,

@@ -104,7 +104,12 @@ export function rowMatchesPoLineKey(
   canonicalKey: string,
 ): boolean {
   const stored = String(row.po_line_sn ?? '').trim();
-  if (stored && expandPoLineLookupKeys(canonicalKey).includes(stored)) return true;
+  if (stored) {
+    if (expandPoLineLookupKeys(canonicalKey).includes(stored)) return true;
+    const parsed = parsePoLineSnComposite(stored);
+    const keyFromStored = buildPoLineKey(parsed.po, parsed.line, parsed.sn);
+    if (keyFromStored === canonicalKey) return true;
+  }
   const built = buildPoLineKey(
     String(row.po ?? ''),
     String(row.line_no ?? ''),
