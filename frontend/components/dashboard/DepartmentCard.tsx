@@ -143,7 +143,7 @@ export function DepartmentCard({ bucket, section, index }: Props) {
                     {formatPkr(po.remaining_value)}
                   </span>
                 </div>
-                <div className="text-[10px] text-muted-foreground">Projects linked: {po.line_count}</div>
+                <div className="text-[10px] text-muted-foreground">Line items: {po.line_count}</div>
               </li>
             ))}
           </ul>

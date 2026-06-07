@@ -2,6 +2,41 @@ import { supabaseAdmin } from '../../config/supabase';
 import { AppError } from '../../utils/errors';
 import { slugifyDepartmentCode } from './slug';
 
+export type DepartmentMatchRow = { code: string; display_name: string };
+
+function normalizeDepartmentMatchKey(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+/**
+ * Map a PO spreadsheet `department` cell to a tenant department code.
+ * Matches exact code/name, substring (e.g. sheet "Main BSS" → dept "BSS"), and slugged codes.
+ */
+export function matchDepartmentCodeFromPoField(
+  poDepartment: string | null | undefined,
+  departments: DepartmentMatchRow[],
+): string | null {
+  if (!poDepartment || !String(poDepartment).trim()) return null;
+  const norm = normalizeDepartmentMatchKey(String(poDepartment));
+  if (!norm) return null;
+
+  const sorted = [...departments].sort(
+    (a, b) => normalizeDepartmentMatchKey(b.display_name).length - normalizeDepartmentMatchKey(a.display_name).length,
+  );
+
+  for (const dept of sorted) {
+    const codeNorm = normalizeDepartmentMatchKey(dept.code);
+    const nameNorm = normalizeDepartmentMatchKey(dept.display_name);
+    if (norm === codeNorm || norm === nameNorm) return dept.code;
+    if (nameNorm.length >= 2 && norm.includes(nameNorm)) return dept.code;
+    if (codeNorm.length >= 2 && norm.includes(codeNorm)) return dept.code;
+    if (norm.length >= 2 && nameNorm.includes(norm)) return dept.code;
+    if (slugifyDepartmentCode(String(poDepartment)) === dept.code) return dept.code;
+  }
+
+  return null;
+}
+
 /** Returns canonical code if the row exists for this tenant. */
 export async function resolveDepartmentCode(
   value: string | null | undefined,
