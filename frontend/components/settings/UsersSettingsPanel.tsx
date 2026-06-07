@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { Plus, Trash2, UserPlus } from 'lucide-react';
@@ -13,6 +13,7 @@ import { ApiError, authedFetchWithSupabase, authedFetchWithSupabaseNoContent, No
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { UserRole } from '@/features/auth/AuthProvider';
 import { useAuth } from '@/features/auth/AuthProvider';
+import { useFormDraft } from '@/hooks/useFormDraft';
 
 const ROLES: UserRole[] = ['admin', 'pm', 'dept_head', 'employee'];
 
@@ -40,6 +41,40 @@ export function UsersSettingsPanel({ supabase }: Props) {
   const [department, setDepartment] = useState('');
   const [newDeptName, setNewDeptName] = useState('');
   const [creatingDept, setCreatingDept] = useState(false);
+
+  type AddUserDraft = {
+    name: string;
+    email: string;
+    role: UserRole;
+    department: string;
+    newDeptName: string;
+    creatingDept: boolean;
+  };
+
+  const addUserDraftValues = useMemo<AddUserDraft>(
+    () => ({ name, email, role, department, newDeptName, creatingDept }),
+    [name, email, role, department, newDeptName, creatingDept],
+  );
+
+  const { restore: restoreAddUserDraft, clear: clearAddUserDraft } = useFormDraft(
+    'settings-add-user',
+    profile?.userId,
+    addUserDraftValues,
+    { enabled: addOpen },
+  );
+
+  useEffect(() => {
+    if (!profile?.userId || !addOpen) return;
+    const saved = restoreAddUserDraft();
+    if (!saved) return;
+    if (typeof saved.name === 'string') setName(saved.name);
+    if (typeof saved.email === 'string') setEmail(saved.email);
+    if (typeof saved.role === 'string') setRole(saved.role as UserRole);
+    if (typeof saved.department === 'string') setDepartment(saved.department);
+    if (typeof saved.newDeptName === 'string') setNewDeptName(saved.newDeptName);
+    if (typeof saved.creatingDept === 'boolean') setCreatingDept(saved.creatingDept);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.userId, addOpen]);
 
   const { data: usersData, isLoading, error } = useQuery({
     queryKey: ['admin', 'users'],
@@ -130,6 +165,7 @@ export function UsersSettingsPanel({ supabase }: Props) {
     setDepartment('');
     setNewDeptName('');
     setCreatingDept(false);
+    clearAddUserDraft();
   }
 
   const needsDept = role !== 'admin' && role !== 'platform_admin';

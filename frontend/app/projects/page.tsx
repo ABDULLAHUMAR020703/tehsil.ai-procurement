@@ -10,6 +10,7 @@ import { Input } from '../../components/ui/Input';
 import { PageContainer } from '../../components/ui/PageContainer';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { useAuth } from '../../features/auth/AuthProvider';
+import { useFormDraft } from '../../hooks/useFormDraft';
 import { authedFetchWithSupabase, NoSessionError } from '../../lib/api';
 
 type PurchaseOrderGroup = {
@@ -183,6 +184,67 @@ export default function ProjectsPage() {
   const [employeeSearch, setEmployeeSearch] = useState('');
   const [error, setError] = useState<string | null>(null);
 
+  type ProjectFormDraft = {
+    name: string;
+    poId: string;
+    noPoMode: boolean;
+    budget: number;
+    pmId: string;
+    createTeamLeadId: string;
+    selectedEmployeeIds: string[];
+    employeeSearch: string;
+    department: string;
+  };
+
+  const projectDraftValues = useMemo<ProjectFormDraft>(
+    () => ({
+      name,
+      poId,
+      noPoMode,
+      budget,
+      pmId,
+      createTeamLeadId,
+      selectedEmployeeIds: [...selectedEmployeeIds],
+      employeeSearch,
+      department,
+    }),
+    [
+      name,
+      poId,
+      noPoMode,
+      budget,
+      pmId,
+      createTeamLeadId,
+      selectedEmployeeIds,
+      employeeSearch,
+      department,
+    ],
+  );
+
+  const { restore: restoreProjectDraft, clear: clearProjectDraft } = useFormDraft(
+    'project-create',
+    profile?.userId,
+    projectDraftValues,
+  );
+
+  useEffect(() => {
+    if (!profile?.userId) return;
+    const saved = restoreProjectDraft();
+    if (!saved) return;
+    if (typeof saved.name === 'string') setName(saved.name);
+    if (typeof saved.poId === 'string') setPoId(saved.poId);
+    if (typeof saved.noPoMode === 'boolean') setNoPoMode(saved.noPoMode);
+    if (typeof saved.budget === 'number') setBudget(saved.budget);
+    if (typeof saved.pmId === 'string') setPmId(saved.pmId);
+    if (typeof saved.createTeamLeadId === 'string') setCreateTeamLeadId(saved.createTeamLeadId);
+    if (Array.isArray(saved.selectedEmployeeIds)) {
+      setSelectedEmployeeIds(new Set(saved.selectedEmployeeIds.filter((id) => typeof id === 'string')));
+    }
+    if (typeof saved.employeeSearch === 'string') setEmployeeSearch(saved.employeeSearch);
+    if (typeof saved.department === 'string') setDepartment(saved.department);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- restore once per user
+  }, [profile?.userId]);
+
   const allDepartmentsForSelect = departmentsData?.departments ?? [];
 
   const deptUsers = useMemo(() => {
@@ -244,6 +306,7 @@ export default function ProjectsPage() {
     },
     onSuccess: () => {
       setError(null);
+      clearProjectDraft();
       setName('');
       setPoId('');
       setNoPoMode(false);

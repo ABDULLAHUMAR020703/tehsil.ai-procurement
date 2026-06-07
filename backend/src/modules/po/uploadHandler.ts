@@ -9,7 +9,7 @@ import { calcRemainingAmount, type ParsedLineItemRow } from './service';
 import { OPTIONAL_HEADER_TO_COLUMN } from './lineItemMap';
 import { logPoUpload } from './uploadLog';
 import {
-  isPostgrestError,
+  isMissingColumnError,
   postgrestErrorMessage,
   throwSupabaseError,
 } from '../../utils/supabaseError';
@@ -101,13 +101,6 @@ function insertChunkSize(rows: Record<string, unknown>[]): number {
   return Math.max(INSERT_CHUNK_MIN, Math.min(INSERT_CHUNK, Math.floor(MAX_INSERT_BATCH_BYTES / bytesPerRow)));
 }
 
-function isMissingColumnError(err: unknown): boolean {
-  if (!isPostgrestError(err)) return false;
-  if (err.code === 'PGRST204') return true;
-  const msg = err.message.toLowerCase();
-  return msg.includes('could not find') && msg.includes('column');
-}
-
 export function lineItemToPayload(
   row: ParsedLineItemRow,
   existing: Record<string, unknown> | null,
@@ -157,8 +150,8 @@ export function lineItemToPayload(
     company_id: options.companyId,
     po: row.po,
     po_line_sn: row.po_line_sn,
-    item_code: row.item_code,
-    description: row.description,
+    item_code: row.item_code || null,
+    description: row.description || null,
     unit_price: row.unit_price,
     po_amount,
     po_invoiced,

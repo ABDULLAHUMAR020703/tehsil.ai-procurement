@@ -1,11 +1,12 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { Session, SupabaseClient } from '@supabase/supabase-js';
 import { useQueryClient } from '@tanstack/react-query';
 import { getBrowserSupabase, getSupabaseBrowserConfigError } from '../../lib/supabase-browser';
 import type { AppPermissionId } from '@/lib/permissions';
 import { APP_PERMISSION_IDS } from '@/lib/permissions';
+import { fetchWithRetry } from '@/lib/fetchWithRetry';
 
 export type UserRole = 'admin' | 'pm' | 'dept_head' | 'employee' | 'platform_admin';
 
@@ -36,7 +37,10 @@ type AuthContextValue = {
   session: Session | null;
   accessToken: string | null;
   profile: UserProfile | null;
+  /** True only while the initial session/profile is unknown (blocks shell once). */
   loading: boolean;
+  /** True during silent background profile refresh — UI should stay mounted. */
+  refreshing: boolean;
   signIn: (params: { email: string; password: string }) => Promise<void>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -52,11 +56,17 @@ export function useAuth() {
 
 const backendBase = process.env.NEXT_PUBLIC_BACKEND_BASE_URL ?? 'http://localhost:4000';
 
+const SILENT_AUTH_EVENTS = new Set(['TOKEN_REFRESHED', 'USER_UPDATED']);
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const profileRef = useRef<UserProfile | null>(null);
+
+  profileRef.current = profile;
 
   const accessToken = session?.access_token ?? null;
 
@@ -79,12 +89,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 15000);
-    const res = await fetch(`${backendBase}/api/auth/me`, {
+    const timeout = window.setTimeout(() => controller.abort(), 20000);
+    const res = await fetchWithRetry(`${backendBase}/api/auth/me`, {
       headers: { Authorization: `Bearer ${token}` },
       signal: controller.signal,
     }).finally(() => window.clearTimeout(timeout));
-    
+
     if (!res.ok) {
       if (res.status === 401 || res.status === 403) {
         await supabase.auth.signOut();
@@ -144,6 +154,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(null);
       setProfile(null);
       setLoading(false);
+      setRefreshing(false);
       return;
     }
 
@@ -156,15 +167,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })();
 
     const { data: sub } = supabase.auth.onAuthStateChange((event, nextSession) => {
-      setLoading(Boolean(nextSession));
       setSession(nextSession);
-      if (event === 'SIGNED_IN') {
-        void queryClient.invalidateQueries();
-      }
+
       if (event === 'SIGNED_OUT') {
         setProfile(null);
         setLoading(false);
+        setRefreshing(false);
         queryClient.clear();
+        return;
+      }
+
+      if (event === 'SIGNED_IN') {
+        setProfile(null);
+        setLoading(true);
+        void queryClient.invalidateQueries();
+        return;
+      }
+
+      if (SILENT_AUTH_EVENTS.has(event)) {
+        return;
+      }
+
+      if (event === 'INITIAL_SESSION' && !nextSession) {
+        setLoading(false);
       }
     });
 
@@ -174,22 +199,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [queryClient, supabase]);
 
+  const userId = session?.user?.id ?? null;
+
   useEffect(() => {
-    if (!accessToken) {
+    if (!userId || !accessToken) {
       setProfile(null);
       setLoading(false);
+      setRefreshing(false);
       return;
     }
+
+    if (profileRef.current?.userId === userId) {
+      return;
+    }
+
     setLoading(true);
     refreshProfile()
       .catch(() => {
-        setProfile(null);
+        if (!profileRef.current) setProfile(null);
       })
       .finally(() => {
         setLoading(false);
+        setRefreshing(false);
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accessToken]);
+  }, [userId, accessToken]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -199,6 +233,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       accessToken,
       profile,
       loading,
+      refreshing,
       signIn: async ({ email, password }) => {
         if (!supabase) {
           throw new Error(
@@ -228,7 +263,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
       refreshProfile,
     }),
-    [supabase, supabaseConfigError, session, profile, loading, accessToken, queryClient, refreshProfile],
+    [supabase, supabaseConfigError, session, profile, loading, refreshing, accessToken, queryClient, refreshProfile],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

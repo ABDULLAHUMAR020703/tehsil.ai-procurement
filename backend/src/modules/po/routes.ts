@@ -17,6 +17,7 @@ import { getAdminUserIds } from '../notifications/service';
 import { attachLastUpdatedFields } from '../auditLogs/lastUpdated';
 import { getLastTransactionForPO } from './lastTransaction';
 import { getBatchLastTransactionForPOs } from './batchLastTransaction';
+import { fetchActivePurchaseOrderLines } from './fetchPoLines';
 import { bypassesDepartmentScope, isDeptManagerRole, type UserRole } from '../auth/types';
 import { requirePermission } from '../../middleware/permissions';
 import { companyScopeForRequest } from '../../tenant/requestCompanyId';
@@ -328,16 +329,7 @@ poRouter.get('/', requireRole('admin', 'platform_admin', 'pm', 'dept_head', 'emp
   const actorDepartment = req.auth!.department ?? null;
   const cid = companyScopeForRequest(req);
 
-  let q = supabaseAdmin
-    .from('purchase_orders')
-    .select(
-      'id, po_number, vendor, total_value, remaining_value, uploaded_by, created_at, updated_at, updated_by, po, po_line_sn, item_code, description, unit_price, line_no, department, project_name, po_amount, remaining_amount, issue_date, customer, source_row',
-    )
-    .eq('company_id', cid)
-    .eq('status', 'active')
-    .order('created_at', { ascending: false })
-    .limit(500);
-
+  let scopeOr: string | undefined;
   if (!bypassesDepartmentScope(actorRole)) {
     let fromProjects: string[] = [];
     if (actorDepartment) {
@@ -374,12 +366,10 @@ poRouter.get('/', requireRole('admin', 'platform_admin', 'pm', 'dept_head', 'emp
       const safeUUIDs = fromProjects.filter(id => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id));
       if (safeUUIDs.length) orParts.push(`id.in.(${safeUUIDs.join(',')})`);
     }
-    q = q.or(orParts.join(','));
+    scopeOr = orParts.join(',');
   }
 
-  const { data, error } = await q;
-  if (error) throw error;
-  const rows = data ?? [];
+  const rows = await fetchActivePurchaseOrderLines(cid, { scope: scopeOr ? { or: scopeOr } : undefined });
   const enrichedRows = await attachLastUpdatedFields('purchase_order', rows, cid);
   const purchaseOrders = groupPurchaseOrdersByPo(enrichedRows as unknown as PurchaseOrderDbRow[]);
   const rowMap = new Map(enrichedRows.map((r) => [r.id, r]));

@@ -226,7 +226,7 @@ export default function DashboardPage() {
       }
     },
   });
-  const { data: poList } = useQuery({
+  const { data: poList, isLoading: poListLoading, isError: poListError, error: poListFetchError, refetch: refetchPoList } = useQuery({
     queryKey: ['dashboard', 'po-overview', profile?.userId],
     enabled: !!token && !!supabase,
     queryFn: async () => {
@@ -514,6 +514,22 @@ export default function DashboardPage() {
                 </div>
               </div>
 
+              {poListLoading ? (
+                <div className="rounded-xl border border-stone-200 dark:border-stone-600 bg-stone-50/70 dark:bg-stone-800/40 px-3 py-4 text-sm text-muted-foreground text-center">
+                  Loading PO records…
+                </div>
+              ) : poListError ? (
+                <div className="rounded-xl border border-rose-200 dark:border-rose-800 bg-rose-50/70 dark:bg-rose-950/40 px-3 py-4 text-sm text-rose-800 dark:text-rose-200 text-center space-y-2">
+                  <div>{poListFetchError instanceof Error ? poListFetchError.message : 'Failed to load PO records'}</div>
+                  <button
+                    type="button"
+                    onClick={() => void refetchPoList()}
+                    className="rounded-lg border border-rose-300 dark:border-rose-700 bg-[var(--surface)] dark:bg-stone-900 px-3 py-1.5 text-xs text-rose-800 dark:text-rose-200 hover:bg-rose-50 dark:hover:bg-rose-950/60"
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : (
               <div className="space-y-4">
                 {pagedPos.map((group) => {
                   const total = Number(group.total_value);
@@ -746,7 +762,9 @@ export default function DashboardPage() {
                   </div>
                 ) : null}
               </div>
+              )}
 
+              {!poListLoading && !poListError ? (
               <div className="flex items-center justify-between">
                 <div className="text-xs text-muted-foreground">
                   Showing {(page - 1) * pageSize + 1}-{Math.min(page * pageSize, filteredSortedPos.length)} of {filteredSortedPos.length}
@@ -770,6 +788,7 @@ export default function DashboardPage() {
                   </button>
                 </div>
               </div>
+              ) : null}
             </Card>
 
             <AuditHistoryModal

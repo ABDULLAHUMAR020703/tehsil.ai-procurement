@@ -1,4 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { fetchWithRetry } from './fetchWithRetry';
+
+export { BackendWakingError } from './fetchWithRetry';
 
 const backendBase = process.env.NEXT_PUBLIC_BACKEND_BASE_URL ?? 'http://localhost:4000';
 
@@ -65,7 +68,7 @@ export async function authedUploadFetch<T>(
   formData: FormData,
 ): Promise<T> {
   const token = await getAccessTokenFromSupabaseSession(supabase);
-  const res = await fetch(`${backendBase}${path}`, {
+  const res = await fetchWithRetry(`${backendBase}${path}`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
     body: formData,
@@ -98,7 +101,7 @@ export async function authedFetch<T>(
   accessToken: string,
   init?: RequestInit,
 ): Promise<T> {
-  const res = await fetch(`${backendBase}${path}`, {
+  const res = await fetchWithRetry(`${backendBase}${path}`, {
     ...init,
     headers: {
       ...(init?.headers ?? {}),
@@ -145,7 +148,7 @@ export async function authedFetchWithSupabaseNoContent(
   init?: RequestInit,
 ): Promise<void> {
   const token = await getAccessTokenFromSupabaseSession(supabase);
-  const res = await fetch(`${backendBase}${path}`, {
+  const res = await fetchWithRetry(`${backendBase}${path}`, {
     ...init,
     headers: {
       ...(init?.headers ?? {}),

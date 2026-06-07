@@ -22,6 +22,19 @@ export function postgrestErrorMessage(err: unknown): string {
   return String(err);
 }
 
+export function isMissingColumnError(err: unknown): boolean {
+  if (!isPostgrestError(err)) return false;
+  if (err.code === 'PGRST204') return true;
+  const msg = err.message.toLowerCase();
+  return msg.includes('could not find') && msg.includes('column');
+}
+
+export function missingColumnFromError(err: unknown): string | null {
+  if (!isPostgrestError(err)) return null;
+  const match = err.message.match(/Could not find the '([^']+)' column/);
+  return match?.[1] ?? null;
+}
+
 export function postgrestErrorFields(err: unknown): Record<string, unknown> | undefined {
   if (!isPostgrestError(err)) return undefined;
   return {

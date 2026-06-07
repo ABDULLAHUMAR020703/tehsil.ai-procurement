@@ -108,12 +108,16 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         : 'border-transparent text-stone-600 dark:text-stone-400 hover:bg-stone-100/80 dark:hover:bg-stone-800/60 hover:text-stone-900 dark:hover:text-stone-100 hover:border-stone-200 dark:hover:border-stone-600',
     );
 
-  if (loading || !profile) {
+  if (loading && !profile) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-stone-50 dark:bg-stone-950 text-stone-500">
         <div className="animate-pulse">Loading workspace...</div>
       </div>
     );
+  }
+
+  if (!profile) {
+    return null;
   }
 
   return (

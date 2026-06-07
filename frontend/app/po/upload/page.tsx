@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { AppLayout } from '../../../components/AppLayout';
@@ -10,6 +10,7 @@ import { Input } from '../../../components/ui/Input';
 import { PageContainer } from '../../../components/ui/PageContainer';
 import { PageHeader } from '../../../components/ui/PageHeader';
 import { useAuth } from '../../../features/auth/AuthProvider';
+import { useFormDraft } from '../../../hooks/useFormDraft';
 import { authedUploadFetch, NoSessionError } from '../../../lib/api';
 
 type UploadResult = {
@@ -43,6 +44,26 @@ export default function PoUploadPage() {
   const [result, setResult] = useState<UploadResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [lastSelectedFileName, setLastSelectedFileName] = useState<string | null>(null);
+
+  const poUploadDraft = useMemo(
+    () => ({ lastSelectedFileName: file?.name ?? lastSelectedFileName }),
+    [file?.name, lastSelectedFileName],
+  );
+  const { restore: restorePoUploadDraft, clear: clearPoUploadDraft } = useFormDraft(
+    'po-upload-meta',
+    profile?.userId,
+    poUploadDraft,
+  );
+
+  useEffect(() => {
+    if (!profile?.userId) return;
+    const saved = restorePoUploadDraft();
+    if (saved?.lastSelectedFileName && typeof saved.lastSelectedFileName === 'string') {
+      setLastSelectedFileName(saved.lastSelectedFileName);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.userId]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,6 +80,8 @@ export default function PoUploadPage() {
       fd.append('file', file);
       const json = await authedUploadFetch<UploadResult>(supabase, '/api/po/upload', fd);
       setResult(json);
+      clearPoUploadDraft();
+      setLastSelectedFileName(null);
       await queryClient.invalidateQueries({ queryKey: ['po'] });
       await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
     } catch (err) {
@@ -80,7 +103,7 @@ export default function PoUploadPage() {
       <PageContainer className="space-y-6">
         <PageHeader
           title="PO Upload"
-          subtitle="Supports line-item exports (PO+LINE+SN, Unit Price, PO Amount) and the full template (PO, Item Code, Description, …). Column names are matched flexibly (spacing, typos, Customer vs Vendor). Legacy admin CSV: po_number, vendor, total_value."
+          subtitle="All rows import by default. Empty, blank, “-”, and N/A cells are treated as missing data—not errors. A row is cancelled only when a cell explicitly says “PO Cancelled”. Supports line-item exports and the full template with flexible column names."
         />
 
         {!canUpload ? (
@@ -96,8 +119,17 @@ export default function PoUploadPage() {
                   className="file:mr-4 file:rounded-lg file:border-0 file:bg-gradient-to-r file:from-orange-500 file:to-rose-500 file:px-3 file:py-2 file:text-sm file:text-white hover:file:brightness-110 file:cursor-pointer file:shadow-sm"
                   type="file"
                   accept=".csv,.xlsx,.xls"
-                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                  onChange={(e) => {
+                    const next = e.target.files?.[0] ?? null;
+                    setFile(next);
+                    if (next) setLastSelectedFileName(next.name);
+                  }}
                 />
+                {lastSelectedFileName && !file ? (
+                  <p className="text-xs text-stone-500 dark:text-stone-400">
+                    Previously selected: {lastSelectedFileName} — re-select the file to upload.
+                  </p>
+                ) : null}
               </div>
 
               <Button className="w-full" type="submit" disabled={loading}>
