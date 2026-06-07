@@ -28,7 +28,16 @@ export function formatApiErrorMessage(body: Record<string, unknown>, fallbackSta
       return `Requested amount (${formatPkr(req)}) exceeds available budget (${formatPkr(av)})`;
     }
   }
-  if (typeof body.message === 'string' && body.message.trim()) return body.message;
+  if (typeof body.message === 'string' && body.message.trim()) {
+    const parts: string[] = [];
+    if (typeof body.errorCode === 'string' && body.errorCode) parts.push(`[${body.errorCode}]`);
+    if (typeof body.debug === 'string' && body.debug.trim()) parts.push(body.debug);
+    if (Array.isArray(body.failures) && body.failures.length > 0) {
+      parts.push(body.failures.slice(0, 5).join('\n'));
+    }
+    if (parts.length > 0) return `${body.message.trim()}\n${parts.join('\n')}`;
+    return body.message.trim();
+  }
   if (typeof body.error === 'string' && body.error.trim()) return body.error;
   const parts: string[] = [];
   if (typeof body.errorCode === 'string' && body.errorCode) parts.push(`[${body.errorCode}]`);

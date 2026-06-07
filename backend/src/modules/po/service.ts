@@ -1,7 +1,18 @@
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
 import { AppError } from '../../utils/errors';
-import { OPTIONAL_HEADER_TO_COLUMN } from './lineItemMap';
+import {
+  buildPoHeaderMap,
+  detectPoFileFormat,
+  normalizeLineHeader,
+  PO_OPTIONAL_DB_COLUMN,
+  resolvePoField,
+  resolvePoFieldFirst,
+  type PoCanonicalField,
+  type PoHeaderMap,
+} from './lineItemMap';
+
+export { detectPoFileFormat, normalizeLineHeader } from './lineItemMap';
 
 export type ParsedPoRow = {
   po_number: string;
@@ -29,29 +40,21 @@ export type PoParseResult =
   | { mode: 'line_items'; rows: ParsedLineItemRow[] }
   | { mode: 'legacy_vendor'; rows: ParsedPoRow[] };
 
-function normalizeHeader(s: string) {
-  return s.toLowerCase().replace(/[\s_-]+/g, '');
-}
+const MONEY_DB_COLUMNS = new Set([
+  'po_quantity',
+  'po_invoiced',
+  'po_acceptance_approved',
+  'po_acceptance_pending',
+  'acceptance_rejected_amount',
+  'wnd',
+  'pending_to_apply',
+  'remaining_amount',
+]);
 
-export function normalizeLineHeader(s: string) {
-  return s.toLowerCase().trim().replace(/\+/g, '').replace(/[\s_-]+/g, '');
-}
+const DATE_DB_COLUMNS = new Set(['issue_date', 'start_date', 'end_date']);
+const INT_DB_COLUMNS = new Set(['month', 'year']);
 
-function buildHeaderNormMap(sample: Record<string, unknown>) {
-  const m = new Map<string, string>();
-  for (const k of Object.keys(sample)) {
-    m.set(normalizeLineHeader(k), k);
-  }
-  return m;
-}
-
-export function detectPoFileFormat(sample: Record<string, unknown> | null | undefined): 'line_items' | 'legacy_vendor' {
-  if (!sample || Object.keys(sample).length === 0) return 'legacy_vendor';
-  const keys = new Set(Object.keys(sample).map(normalizeLineHeader));
-  const required = ['po', 'itemcode', 'description', 'unitprice', 'poamount', 'polinesn'];
-  if (required.every((k) => keys.has(k))) return 'line_items';
-  return 'legacy_vendor';
-}
+const LEGACY_TOTAL_ALIASES = ['totalvalue', 'totalamount', 'grandtotal'] as const;
 
 function normalizeMoneyString(value: string): string {
   return value
@@ -122,53 +125,102 @@ function parseOptionalDate(value: unknown): string | undefined {
   return undefined;
 }
 
-function toRowFromObject(obj: Record<string, unknown>): ParsedPoRow {
-  const keys = Object.keys(obj);
-  const headerMap = new Map(keys.map((k) => [normalizeHeader(k), k] as const));
+function textValue(value: unknown): string {
+  return String(value ?? '').trim();
+}
+
+/** When PO column is absent, derive from PO+LINE+SN (e.g. "4500123456-10-001"). */
+export function derivePoFromLineSn(poLineSn: string): string {
+  const trimmed = poLineSn.trim();
+  if (!trimmed) return '';
+  const segment = trimmed.split(/[-/|]/)[0]?.trim();
+  return segment || trimmed;
+}
+
+function dbColumnsByCanonical(): Map<string, PoCanonicalField[]> {
+  const grouped = new Map<string, PoCanonicalField[]>();
+  for (const [canonical, col] of Object.entries(PO_OPTIONAL_DB_COLUMN)) {
+    const list = grouped.get(col) ?? [];
+    list.push(canonical as PoCanonicalField);
+    grouped.set(col, list);
+  }
+  return grouped;
+}
+
+const OPTIONAL_BY_DB_COLUMN = dbColumnsByCanonical();
+
+function parseOptionalExtras(obj: Record<string, unknown>, headerMap: PoHeaderMap): Record<string, unknown> {
+  const extras: Record<string, unknown> = {};
+
+  for (const [col, fields] of OPTIONAL_BY_DB_COLUMN) {
+    const raw = resolvePoFieldFirst(obj, headerMap, ...fields);
+    if (raw === null || raw === undefined || raw === '') continue;
+
+    if (INT_DB_COLUMNS.has(col)) {
+      const v = parseOptionalInt(raw);
+      if (v !== undefined) extras[col] = v;
+      continue;
+    }
+    if (DATE_DB_COLUMNS.has(col)) {
+      const v = parseOptionalDate(raw);
+      if (v !== undefined) extras[col] = v;
+      continue;
+    }
+    if (MONEY_DB_COLUMNS.has(col)) {
+      const v = parseOptionalMoney(raw);
+      if (v !== undefined) extras[col] = v;
+      continue;
+    }
+    extras[col] = String(raw).trim();
+  }
+
+  if (!extras.department) {
+    const dept = resolvePoFieldFirst(obj, headerMap, 'departmentname', 'maindepartment');
+    if (dept != null && String(dept).trim()) extras.department = String(dept).trim();
+  }
+  if (!extras.sub_department) {
+    const sub = resolvePoFieldFirst(obj, headerMap, 'subdeptarment', 'subdepartment');
+    if (sub != null && String(sub).trim()) extras.sub_department = String(sub).trim();
+  }
+
+  return extras;
+}
+
+function deriveItemCode(obj: Record<string, unknown>, headerMap: PoHeaderMap, poLineSn: string): string {
+  const direct = textValue(resolvePoFieldFirst(obj, headerMap, 'itemcode'));
+  if (direct && !isDashPlaceholder(direct)) return direct;
+  const lineNo = textValue(resolvePoField(obj, headerMap, 'lineno'));
+  if (lineNo && !isDashPlaceholder(lineNo)) return lineNo;
+  const shipment = textValue(resolvePoField(obj, headerMap, 'shipmentnumber'));
+  if (shipment && !isDashPlaceholder(shipment)) return shipment;
+  return poLineSn;
+}
+
+function deriveDescription(obj: Record<string, unknown>, headerMap: PoHeaderMap, itemCode: string): string {
+  const direct = textValue(resolvePoFieldFirst(obj, headerMap, 'description'));
+  if (direct && !isDashPlaceholder(direct)) return direct;
+  const shipment = textValue(resolvePoField(obj, headerMap, 'shipmentnumber'));
+  const lineNo = textValue(resolvePoField(obj, headerMap, 'lineno'));
+  const parts: string[] = [];
+  if (shipment && !isDashPlaceholder(shipment)) parts.push(`Shipment ${shipment}`);
+  if (lineNo && !isDashPlaceholder(lineNo)) parts.push(`Line ${lineNo}`);
+  if (parts.length > 0) return parts.join(' / ');
+  return itemCode || 'PO line';
+}
+
+function lineItemFromObject(obj: Record<string, unknown>, headerMap: PoHeaderMap): ParsedLineItemRow {
   const is_cancelled = Object.values(obj).some(isExplicitCancelledValue);
   const dash_fields = Object.entries(obj)
     .filter(([, value]) => isSourceDash(value))
     .map(([key]) => key);
 
-  const poKey = headerMap.get('ponumber') ?? headerMap.get('po');
-  const vendorKey = headerMap.get('vendor');
-  const totalKey = headerMap.get('totalvalue') ?? headerMap.get('total_value') ?? headerMap.get('amount');
-
-  if (!poKey || !vendorKey || !totalKey) {
-    throw new AppError('Missing required columns: po_number, vendor, total_value', 400);
-  }
-
-  const po_number = String(obj[poKey] ?? '').trim();
-  const vendor = String(obj[vendorKey] ?? '').trim();
-  const total_value = parseNullableMoney(obj[totalKey]);
-
-  if (!po_number) throw new AppError('po_number cannot be empty', 400);
-  if (!is_cancelled) {
-    if (!vendor) throw new AppError('vendor cannot be empty', 400);
-  }
-
-  return { po_number, vendor, total_value, is_cancelled, dash_fields, source_row: obj };
-}
-
-function getByCanon(obj: Record<string, unknown>, headerNormToOrig: Map<string, string>, canon: string): unknown {
-  const orig = headerNormToOrig.get(canon);
-  return orig != null ? obj[orig] : undefined;
-}
-
-function lineItemFromObject(
-  obj: Record<string, unknown>,
-  headerNormToOrig: Map<string, string>,
-): ParsedLineItemRow {
-  const is_cancelled = Object.values(obj).some(isExplicitCancelledValue);
-  const dash_fields = Object.entries(obj)
-    .filter(([, value]) => isSourceDash(value))
-    .map(([key]) => key);
-  const po_line_sn = String(getByCanon(obj, headerNormToOrig, 'polinesn') ?? '').trim();
-  const po = String(getByCanon(obj, headerNormToOrig, 'po') ?? '').trim();
-  const item_code = String(getByCanon(obj, headerNormToOrig, 'itemcode') ?? '').trim();
-  const description = String(getByCanon(obj, headerNormToOrig, 'description') ?? '').trim();
-  const unit_price = parseNullableMoney(getByCanon(obj, headerNormToOrig, 'unitprice'));
-  const po_amount = parseNullableMoney(getByCanon(obj, headerNormToOrig, 'poamount'));
+  const po_line_sn = textValue(resolvePoField(obj, headerMap, 'polinesn'));
+  const po =
+    textValue(resolvePoFieldFirst(obj, headerMap, 'po')) || derivePoFromLineSn(po_line_sn);
+  const item_code = deriveItemCode(obj, headerMap, po_line_sn);
+  const description = deriveDescription(obj, headerMap, item_code);
+  const unit_price = parseNullableMoney(resolvePoField(obj, headerMap, 'unitprice'));
+  const po_amount = parseNullableMoney(resolvePoField(obj, headerMap, 'poamount'));
 
   if (!po_line_sn) throw new AppError('PO+LINE+SN cannot be empty', 400);
   if (!po) throw new AppError('PO cannot be empty', 400);
@@ -176,39 +228,6 @@ function lineItemFromObject(
     if (!item_code) throw new AppError('Item Code cannot be empty', 400);
     if (!description) throw new AppError('Description cannot be empty', 400);
     if (unit_price != null && unit_price < 0) throw new AppError('Unit Price cannot be negative', 400);
-  }
-
-  const extras: Record<string, unknown> = {};
-  for (const [canon, col] of Object.entries(OPTIONAL_HEADER_TO_COLUMN)) {
-    const orig = headerNormToOrig.get(canon);
-    if (orig == null || !(orig in obj)) continue;
-    const raw = obj[orig];
-    if (raw === null || raw === undefined || raw === '') continue;
-
-    if (col === 'month' || col === 'year') {
-      const v = parseOptionalInt(raw);
-      if (v !== undefined) extras[col] = v;
-      continue;
-    }
-    if (col === 'issue_date' || col === 'start_date' || col === 'end_date') {
-      const v = parseOptionalDate(raw);
-      if (v !== undefined) extras[col] = v;
-      continue;
-    }
-    if (
-      col === 'po_quantity' ||
-      col === 'po_invoiced' ||
-      col === 'po_acceptance_approved' ||
-      col === 'po_acceptance_pending' ||
-      col === 'acceptance_rejected_amount' ||
-      col === 'wnd' ||
-      col === 'pending_to_apply'
-    ) {
-      const v = parseOptionalMoney(raw);
-      if (v !== undefined) extras[col] = v;
-      continue;
-    }
-    extras[col] = String(raw).trim();
   }
 
   return {
@@ -221,8 +240,37 @@ function lineItemFromObject(
     is_cancelled,
     dash_fields,
     source_row: obj,
-    extras,
+    extras: parseOptionalExtras(obj, headerMap),
   };
+}
+
+function resolveLegacyTotalValue(obj: Record<string, unknown>, headerMap: PoHeaderMap): number | null {
+  for (const alias of LEGACY_TOTAL_ALIASES) {
+    const orig = Object.keys(obj).find((k) => normalizeLineHeader(k) === alias);
+    if (orig) return parseNullableMoney(obj[orig]);
+  }
+  if (!headerMap.has('polinesn') && headerMap.has('poamount')) {
+    return parseNullableMoney(resolvePoField(obj, headerMap, 'poamount'));
+  }
+  return null;
+}
+
+function toRowFromObject(obj: Record<string, unknown>, headerMap: PoHeaderMap): ParsedPoRow {
+  const is_cancelled = Object.values(obj).some(isExplicitCancelledValue);
+  const dash_fields = Object.entries(obj)
+    .filter(([, value]) => isSourceDash(value))
+    .map(([key]) => key);
+
+  const po_number = textValue(resolvePoFieldFirst(obj, headerMap, 'po'));
+  const vendor = textValue(resolvePoFieldFirst(obj, headerMap, 'customer'));
+  const total_value = resolveLegacyTotalValue(obj, headerMap);
+
+  if (!po_number || !vendor || total_value === null) {
+    throw new AppError('Missing required columns: po_number (or PO), vendor (or Customer), total_value', 400);
+  }
+  if (!is_cancelled && !vendor) throw new AppError('vendor cannot be empty', 400);
+
+  return { po_number, vendor, total_value, is_cancelled, dash_fields, source_row: obj };
 }
 
 function loadRawRows(fileBuffer: Buffer, originalName: string): Record<string, unknown>[] {
@@ -241,7 +289,11 @@ function loadRawRows(fileBuffer: Buffer, originalName: string): Record<string, u
     const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
-    const jsonRows = XLSX.utils.sheet_to_json(sheet, { defval: null, raw: false }) as Record<string, unknown>[];
+    const jsonRows = XLSX.utils.sheet_to_json(sheet, {
+      defval: null,
+      raw: false,
+      blankrows: false,
+    }) as Record<string, unknown>[];
     if (!jsonRows.length) throw new AppError('Excel file contains no rows', 400);
     return jsonRows;
   }
@@ -253,23 +305,24 @@ export function parsePoUploadFile(params: { fileBuffer: Buffer; originalName: st
   const rawRows = loadRawRows(params.fileBuffer, params.originalName);
   if (rawRows.length === 0) throw new AppError('No valid PO rows found', 400);
 
-  const sample = rawRows[0];
+  const sample = rawRows[0]!;
+  const headerMap = buildPoHeaderMap(sample);
+
   if (detectPoFileFormat(sample) === 'line_items') {
-    const headerNormToOrig = buildHeaderNormMap(sample);
     const seen = new Set<string>();
     const rows: ParsedLineItemRow[] = [];
     for (const obj of rawRows) {
-      const sn = String(getByCanon(obj, headerNormToOrig, 'polinesn') ?? '').trim();
-      if (sn) {
-        if (seen.has(sn)) throw new AppError(`Duplicate PO+LINE+SN in file: ${sn}`, 400);
-        seen.add(sn);
-      }
-      rows.push(lineItemFromObject(obj, headerNormToOrig));
+      const sn = textValue(resolvePoField(obj, headerMap, 'polinesn'));
+      if (!sn) continue;
+      if (seen.has(sn)) throw new AppError(`Duplicate PO+LINE+SN in file: ${sn}`, 400);
+      seen.add(sn);
+      rows.push(lineItemFromObject(obj, headerMap));
     }
+    if (rows.length === 0) throw new AppError('No valid PO rows found (PO+LINE+SN column empty on all rows)', 400);
     return { mode: 'line_items', rows };
   }
 
-  return { mode: 'legacy_vendor', rows: rawRows.map(toRowFromObject) };
+  return { mode: 'legacy_vendor', rows: rawRows.map((obj) => toRowFromObject(obj, headerMap)) };
 }
 
 export function calcRemainingAmount(params: {

@@ -80,7 +80,7 @@ export default function PoUploadPage() {
       <PageContainer className="space-y-6">
         <PageHeader
           title="PO Upload"
-          subtitle="Line items: PO, Item Code, Description, Unit Price, PO Amount, PO+LINE+SN (CSV/XLSX). Optional columns Project Name and Department (or Department name) are stored and used to prefill new projects. Admins may also use legacy columns: po_number, vendor, total_value."
+          subtitle="Supports line-item exports (PO+LINE+SN, Unit Price, PO Amount) and the full template (PO, Item Code, Description, …). Column names are matched flexibly (spacing, typos, Customer vs Vendor). Legacy admin CSV: po_number, vendor, total_value."
         />
 
         {!canUpload ? (

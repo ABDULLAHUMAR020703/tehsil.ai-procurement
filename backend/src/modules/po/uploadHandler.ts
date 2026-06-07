@@ -8,7 +8,11 @@ import { isDeptManagerRole, type UserRole } from '../auth/types';
 import { calcRemainingAmount, type ParsedLineItemRow } from './service';
 import { OPTIONAL_HEADER_TO_COLUMN } from './lineItemMap';
 import { logPoUpload } from './uploadLog';
-import { postgrestErrorMessage, throwSupabaseError } from '../../utils/supabaseError';
+import {
+  isPostgrestError,
+  postgrestErrorMessage,
+  throwSupabaseError,
+} from '../../utils/supabaseError';
 
 /** Columns we may send to `purchase_orders` (avoids PGRST204 when prod DB lags migrations). */
 const PO_INSERT_COLUMNS = new Set<string>([
@@ -47,11 +51,61 @@ function pickPoRowPayload(payload: Record<string, unknown>): Record<string, unkn
 }
 
 const INSERT_CHUNK = 100;
+const INSERT_CHUNK_MIN = 10;
 const UPDATE_CONCURRENCY = 15;
+/** PostgREST / gateway body limits — keep bulk inserts under ~512KB. */
+const MAX_INSERT_BATCH_BYTES = 512 * 1024;
 
 function num(v: unknown, fallback: number): number {
   const n = typeof v === 'number' ? v : Number(v);
   return Number.isFinite(n) ? n : fallback;
+}
+
+function roundMoney(value: number, scale: number): number {
+  const factor = 10 ** scale;
+  return Math.round(value * factor) / factor;
+}
+
+/** DB columns `total_value` / `remaining_value` are numeric(20,2) with check >= 0. */
+function nonNegativeMoney(value: number, scale: 2 | 4 = 2): number {
+  if (!Number.isFinite(value)) return 0;
+  const max = scale === 2 ? 999999999999999999.99 : 9999999999999999.9999;
+  return roundMoney(Math.min(max, Math.max(0, value)), scale);
+}
+
+function compactSourceRow(source: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (value === null || value === undefined || value === '') continue;
+    if (typeof value === 'string' && value.length > 2000) {
+      out[key] = `${value.slice(0, 2000)}…`;
+      continue;
+    }
+    out[key] = value;
+  }
+  return out;
+}
+
+function estimateInsertBatchBytes(rows: Record<string, unknown>[]): number {
+  try {
+    return Buffer.byteLength(JSON.stringify(rows), 'utf8');
+  } catch {
+    return rows.length * 4096;
+  }
+}
+
+function insertChunkSize(rows: Record<string, unknown>[]): number {
+  if (rows.length === 0) return INSERT_CHUNK;
+  const sample = rows.slice(0, Math.min(rows.length, INSERT_CHUNK));
+  const bytesPerRow = Math.max(256, Math.ceil(estimateInsertBatchBytes(sample) / sample.length));
+  return Math.max(INSERT_CHUNK_MIN, Math.min(INSERT_CHUNK, Math.floor(MAX_INSERT_BATCH_BYTES / bytesPerRow)));
+}
+
+function isMissingColumnError(err: unknown): boolean {
+  if (!isPostgrestError(err)) return false;
+  if (err.code === 'PGRST204') return true;
+  const msg = err.message.toLowerCase();
+  return msg.includes('could not find') && msg.includes('column');
 }
 
 export function lineItemToPayload(
@@ -72,14 +126,17 @@ export function lineItemToPayload(
 
   const sourceRemaining =
     row.extras.remaining_amount !== undefined ? num(row.extras.remaining_amount, NaN) : NaN;
-  const remaining_amount = Number.isFinite(sourceRemaining)
-    ? sourceRemaining
-    : calcRemainingAmount({
-        po_amount,
-        po_invoiced,
-        po_acceptance_approved,
-        pending_to_apply,
-      });
+  const remaining_amount = nonNegativeMoney(
+    Number.isFinite(sourceRemaining)
+      ? sourceRemaining
+      : calcRemainingAmount({
+          po_amount,
+          po_invoiced,
+          po_acceptance_approved,
+          pending_to_apply,
+        }),
+    4,
+  );
 
   const customerStr =
     row.extras.customer !== undefined ? String(row.extras.customer).trim() : String(ex.customer ?? '').trim();
@@ -120,13 +177,13 @@ export function lineItemToPayload(
     remaining_amount,
     po_number: row.po,
     vendor: customerStr || 'Unknown',
-    total_value: Math.max(0, po_amount ?? 0),
-    remaining_value: remaining_amount,
+    total_value: nonNegativeMoney(po_amount ?? 0, 2),
+    remaining_value: nonNegativeMoney(remaining_amount, 2),
     uploaded_by: actorUserId,
     updated_by: actorUserId,
     department,
     source_row: {
-      ...row.source_row,
+      ...compactSourceRow(row.source_row),
       _dash_fields: row.dash_fields,
       _explicit_cancelled: row.is_cancelled,
     },
@@ -143,14 +200,53 @@ function supabaseErrMessage(err: unknown): string {
   return postgrestErrorMessage(err);
 }
 
-async function insertOnePoRow(
-  payload: Record<string, unknown>,
-  companyId: string,
-): Promise<{ id: string } | null> {
-  const row = pickPoRowPayload(payload);
-  const { data, error } = await supabaseAdmin.from('purchase_orders').insert(row).select('id').single();
-  if (error) throw error;
-  return data?.id ? { id: data.id as string } : null;
+function stripPayloadColumns(payload: Record<string, unknown>, columns: string[]): Record<string, unknown> {
+  const out = { ...payload };
+  for (const col of columns) delete out[col];
+  return out;
+}
+
+function insertPayloadVariants(payload: Record<string, unknown>): Record<string, unknown>[] {
+  const base = pickPoRowPayload(payload);
+  return [
+    base,
+    stripPayloadColumns(base, ['source_row']),
+    stripPayloadColumns(base, ['source_row', 'status']),
+  ];
+}
+
+async function insertOnePoRow(payload: Record<string, unknown>): Promise<{ id: string } | null> {
+  const candidates = insertPayloadVariants(payload);
+
+  let lastErr: unknown;
+  for (const row of candidates) {
+    const { data, error } = await supabaseAdmin.from('purchase_orders').insert(row).select('id').single();
+    if (!error) return data?.id ? { id: data.id as string } : null;
+    lastErr = error;
+    if (!isMissingColumnError(error)) break;
+  }
+  throw lastErr;
+}
+
+async function insertPoChunk(chunk: Record<string, unknown>[]): Promise<{ id: string }[]> {
+  const tryInsert = async (rows: Record<string, unknown>[]) => {
+    const { data, error } = await supabaseAdmin.from('purchase_orders').insert(rows).select('id');
+    if (error) throw error;
+    return (data ?? []) as { id: string }[];
+  };
+
+  for (const stripCols of [[], ['source_row'], ['source_row', 'status']] as const) {
+    const rows =
+      stripCols.length === 0
+        ? chunk
+        : chunk.map((row) => stripPayloadColumns(row, [...stripCols]));
+    try {
+      return await tryInsert(rows);
+    } catch (chunkErr) {
+      if (!isMissingColumnError(chunkErr) || stripCols.length === 2) throw chunkErr;
+    }
+  }
+  return [];
 }
 
 async function runPool<T>(items: T[], concurrency: number, fn: (item: T) => Promise<void>): Promise<void> {
@@ -251,31 +347,28 @@ export async function handleLineItemUpload(params: {
 
   if (req) logPoUpload(req, 'db_insert_start', { insertCount: toInsert.length, updateCount: toUpdate.length });
 
-  for (let offset = 0; offset < toInsert.length; offset += INSERT_CHUNK) {
-    const chunk = toInsert.slice(offset, offset + INSERT_CHUNK);
+  const chunkSize = insertChunkSize(toInsert);
+  for (let offset = 0; offset < toInsert.length; offset += chunkSize) {
+    const chunk = toInsert.slice(offset, offset + chunkSize);
     try {
-      const { data: insRows, error: insErr } = await supabaseAdmin
-        .from('purchase_orders')
-        .insert(chunk)
-        .select('id');
-      if (insErr) throw insErr;
-      inserted += insRows?.length ?? chunk.length;
+      const insRows = await insertPoChunk(chunk);
+      inserted += insRows.length;
       activeInserted += chunk.filter((row) => row.status !== 'cancelled').length;
-      const first = insRows?.[0]?.id as string | undefined;
+      const first = insRows[0]?.id;
       if (first && !firstEntityId) firstEntityId = first;
     } catch (chunkErr) {
       if (req) {
         logPoUpload(req, 'db_insert_chunk_fallback', {
-        offset,
-        chunkSize: chunk.length,
-        error: supabaseErrMessage(chunkErr),
+          offset,
+          chunkSize: chunk.length,
+          error: supabaseErrMessage(chunkErr),
         });
       }
       for (let j = 0; j < chunk.length; j++) {
         const rowPayload = chunk[j]!;
         const label = (rowPayload.po_line_sn as string) ?? 'unknown';
         try {
-          const ins = await insertOnePoRow(rowPayload, companyId);
+          const ins = await insertOnePoRow(rowPayload);
           if (ins?.id) {
             inserted += 1;
             if (rowPayload.status !== 'cancelled') activeInserted += 1;
@@ -290,15 +383,41 @@ export async function handleLineItemUpload(params: {
   }
 
   await runPool(toUpdate, UPDATE_CONCURRENCY, async (item) => {
-    try {
+    const runUpdate = async (payload: Record<string, unknown>) => {
       const { data: upd, error: updErr } = await supabaseAdmin
         .from('purchase_orders')
-        .update(item.payload)
+        .update(payload)
         .eq('company_id', companyId)
         .eq('id', item.id)
         .select('id')
         .single();
       if (updErr) throw updErr;
+      return upd;
+    };
+
+    try {
+      let upd: { id?: unknown } | null;
+      try {
+        upd = await runUpdate(item.payload);
+      } catch (err) {
+        if (!isMissingColumnError(err)) throw err;
+        let payload = { ...item.payload };
+        if ('source_row' in payload) {
+          delete payload.source_row;
+          try {
+            upd = await runUpdate(payload);
+          } catch (err2) {
+            if (!isMissingColumnError(err2) || !('status' in payload)) throw err2;
+            delete payload.status;
+            upd = await runUpdate(payload);
+          }
+        } else if ('status' in payload) {
+          delete payload.status;
+          upd = await runUpdate(payload);
+        } else {
+          throw err;
+        }
+      }
       updated += 1;
       if (item.payload.status !== 'cancelled') activeUpdated += 1;
       if (upd?.id && !firstEntityId) firstEntityId = upd.id as string;
@@ -313,7 +432,8 @@ export async function handleLineItemUpload(params: {
   }
 
   if (inserted === 0 && updated === 0 && failed === rows.length) {
-    throw new AppError('All PO rows failed to save. Check data types and constraints.', 400, {
+    const sample = failures[0] ?? 'unknown database error';
+    throw new AppError(`All PO rows failed to save. Check data types and constraints. Example: ${sample}`, 400, {
       failures: failures.slice(0, 10),
     });
   }
