@@ -1,12 +1,13 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import type { Session, SupabaseClient } from '@supabase/supabase-js';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import type { AuthChangeEvent, Session, SupabaseClient } from '@supabase/supabase-js';
 import { useQueryClient } from '@tanstack/react-query';
 import { getBrowserSupabase, getSupabaseBrowserConfigError } from '../../lib/supabase-browser';
 import type { AppPermissionId } from '@/lib/permissions';
 import { APP_PERMISSION_IDS } from '@/lib/permissions';
 import { fetchWithRetry } from '@/lib/fetchWithRetry';
+import { clearProfileCache, readProfileCache, writeProfileCache } from '@/lib/authProfileCache';
 
 export type UserRole = 'admin' | 'pm' | 'dept_head' | 'employee' | 'platform_admin';
 
@@ -41,9 +42,12 @@ type AuthContextValue = {
   loading: boolean;
   /** True during silent background profile refresh — UI should stay mounted. */
   refreshing: boolean;
+  /** True when initial profile load exceeded the timeout — show retry UI. */
+  workspaceInitTimedOut: boolean;
   signIn: (params: { email: string; password: string }) => Promise<void>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  retryWorkspaceInit: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -56,7 +60,9 @@ export function useAuth() {
 
 const backendBase = process.env.NEXT_PUBLIC_BACKEND_BASE_URL ?? 'http://localhost:4000';
 
-const SILENT_AUTH_EVENTS = new Set(['TOKEN_REFRESHED', 'USER_UPDATED']);
+const SILENT_AUTH_EVENTS = new Set<AuthChangeEvent>(['TOKEN_REFRESHED', 'USER_UPDATED']);
+
+const WORKSPACE_INIT_TIMEOUT_MS = 22_000;
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
@@ -64,18 +70,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [workspaceInitTimedOut, setWorkspaceInitTimedOut] = useState(false);
   const profileRef = useRef<UserProfile | null>(null);
+  const profileLoadInFlight = useRef<Promise<void> | null>(null);
 
   profileRef.current = profile;
 
   const accessToken = session?.access_token ?? null;
+  const userId = session?.user?.id ?? null;
 
   const supabaseConfigError = useMemo(() => getSupabaseBrowserConfigError(), []);
   const supabase = useMemo(() => getBrowserSupabase(), []);
 
-  const refreshProfile = React.useCallback(async () => {
+  const applyProfile = useCallback((next: UserProfile | null) => {
+    setProfile(next);
+    if (next) writeProfileCache(next);
+    else clearProfileCache();
+  }, []);
+
+  const refreshProfile = useCallback(async () => {
     if (!supabase) {
-      setProfile(null);
+      applyProfile(null);
       return;
     }
 
@@ -84,12 +99,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } = await supabase.auth.getSession();
     const token = fresh?.access_token;
     if (!token) {
-      setProfile(null);
+      applyProfile(null);
       return;
     }
 
     const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 20000);
+    const timeout = window.setTimeout(() => controller.abort(), 20_000);
     const res = await fetchWithRetry(`${backendBase}/api/auth/me`, {
       headers: { Authorization: `Bearer ${token}` },
       signal: controller.signal,
@@ -99,7 +114,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (res.status === 401 || res.status === 403) {
         await supabase.auth.signOut();
         setSession(null);
-        setProfile(null);
+        applyProfile(null);
         return;
       }
       throw new Error('Failed to fetch profile from backend');
@@ -121,7 +136,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     const raw = json.user as Record<string, unknown>;
-    const userId = (raw.userId ?? raw.user_id) as string;
+    const resolvedUserId = (raw.userId ?? raw.user_id) as string;
 
     const permRaw = json.user.permissions;
     const permissions: AppPermissionId[] | undefined =
@@ -133,8 +148,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             ) as AppPermissionId[])
           : [];
 
-    setProfile({
-      userId,
+    applyProfile({
+      userId: resolvedUserId,
       role: json.user.role as UserRole,
       department: json.user.department ?? null,
       name: json.user.name ?? null,
@@ -147,12 +162,135 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isPlatformAdmin: json.user.role === 'platform_admin',
       permissions,
     });
-  }, [supabase]);
+  }, [applyProfile, supabase]);
+
+  const loadProfile = useCallback(
+    async (options?: { blockUI?: boolean; force?: boolean }) => {
+      if (!userId || !accessToken) {
+        applyProfile(null);
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
+
+      const blockUI = options?.blockUI ?? !profileRef.current;
+      const force = options?.force ?? false;
+
+      if (!force && profileRef.current?.userId === userId) {
+        setLoading(false);
+        setWorkspaceInitTimedOut(false);
+        return;
+      }
+
+      if (profileLoadInFlight.current) {
+        await profileLoadInFlight.current;
+        return;
+      }
+
+      const run = (async () => {
+        if (blockUI) setLoading(true);
+        else setRefreshing(true);
+        setWorkspaceInitTimedOut(false);
+
+        try {
+          await refreshProfile();
+        } catch {
+          if (!profileRef.current) {
+            const cached = readProfileCache<UserProfile>(userId);
+            if (cached?.userId === userId) applyProfile(cached);
+            else applyProfile(null);
+          }
+        } finally {
+          setLoading(false);
+          setRefreshing(false);
+        }
+      })();
+
+      profileLoadInFlight.current = run;
+      try {
+        await run;
+      } finally {
+        profileLoadInFlight.current = null;
+      }
+    },
+    [accessToken, applyProfile, refreshProfile, userId],
+  );
+
+  const retryWorkspaceInit = useCallback(async () => {
+    setWorkspaceInitTimedOut(false);
+    await loadProfile({ blockUI: !profileRef.current, force: true });
+  }, [loadProfile]);
+
+  const hydrateProfileFromCache = useCallback((uid: string) => {
+    if (profileRef.current?.userId === uid) return profileRef.current;
+    const cached = readProfileCache<UserProfile>(uid);
+    if (cached?.userId === uid) {
+      setProfile(cached);
+      setLoading(false);
+      return cached;
+    }
+    return null;
+  }, []);
+
+  const handleAuthStateChange = useCallback(
+    (event: AuthChangeEvent, nextSession: Session | null) => {
+      setSession(nextSession);
+
+      if (event === 'SIGNED_OUT') {
+        applyProfile(null);
+        setLoading(false);
+        setRefreshing(false);
+        setWorkspaceInitTimedOut(false);
+        queryClient.clear();
+        return;
+      }
+
+      if (event === 'SIGNED_IN') {
+        const nextUserId = nextSession?.user?.id;
+        const existing =
+          profileRef.current ?? (nextUserId ? readProfileCache<UserProfile>(nextUserId) : null);
+
+        if (nextUserId && existing?.userId === nextUserId) {
+          if (!profileRef.current) setProfile(existing);
+          setLoading(false);
+          setWorkspaceInitTimedOut(false);
+          setRefreshing(true);
+          void refreshProfile()
+            .catch(() => {
+              /* keep cached profile visible */
+            })
+            .finally(() => setRefreshing(false));
+          void queryClient.invalidateQueries();
+          return;
+        }
+
+        applyProfile(null);
+        setLoading(true);
+        setWorkspaceInitTimedOut(false);
+        void queryClient.invalidateQueries();
+        void loadProfile({ blockUI: true, force: true });
+        return;
+      }
+
+      if (SILENT_AUTH_EVENTS.has(event)) {
+        return;
+      }
+
+      if (event === 'INITIAL_SESSION') {
+        if (!nextSession) {
+          setLoading(false);
+          return;
+        }
+        hydrateProfileFromCache(nextSession.user.id);
+      }
+    },
+    [applyProfile, hydrateProfileFromCache, loadProfile, queryClient, refreshProfile],
+  );
 
   useEffect(() => {
     if (!supabase) {
       setSession(null);
-      setProfile(null);
+      applyProfile(null);
       setLoading(false);
       setRefreshing(false);
       return;
@@ -163,67 +301,60 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { data } = await supabase.auth.getSession();
       if (!mounted) return;
       setSession(data.session);
+      if (data.session?.user?.id) {
+        hydrateProfileFromCache(data.session.user.id);
+      }
       if (!data.session) setLoading(false);
     })();
 
     const { data: sub } = supabase.auth.onAuthStateChange((event, nextSession) => {
-      setSession(nextSession);
-
-      if (event === 'SIGNED_OUT') {
-        setProfile(null);
-        setLoading(false);
-        setRefreshing(false);
-        queryClient.clear();
-        return;
-      }
-
-      if (event === 'SIGNED_IN') {
-        setProfile(null);
-        setLoading(true);
-        void queryClient.invalidateQueries();
-        return;
-      }
-
-      if (SILENT_AUTH_EVENTS.has(event)) {
-        return;
-      }
-
-      if (event === 'INITIAL_SESSION' && !nextSession) {
-        setLoading(false);
-      }
+      handleAuthStateChange(event, nextSession);
     });
 
     return () => {
       mounted = false;
       sub.subscription.unsubscribe();
     };
-  }, [queryClient, supabase]);
-
-  const userId = session?.user?.id ?? null;
+  }, [applyProfile, handleAuthStateChange, hydrateProfileFromCache, supabase]);
 
   useEffect(() => {
     if (!userId || !accessToken) {
-      setProfile(null);
+      applyProfile(null);
       setLoading(false);
       setRefreshing(false);
       return;
     }
 
     if (profileRef.current?.userId === userId) {
+      setLoading(false);
+      setWorkspaceInitTimedOut(false);
       return;
     }
 
-    setLoading(true);
-    refreshProfile()
-      .catch(() => {
-        if (!profileRef.current) setProfile(null);
-      })
-      .finally(() => {
-        setLoading(false);
-        setRefreshing(false);
-      });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, accessToken]);
+    const cached = readProfileCache<UserProfile>(userId);
+    if (cached?.userId === userId) {
+      setProfile(cached);
+      setLoading(false);
+      setRefreshing(true);
+      void refreshProfile()
+        .catch(() => {
+          /* keep cached profile */
+        })
+        .finally(() => setRefreshing(false));
+      return;
+    }
+
+    void loadProfile({ blockUI: true });
+  }, [accessToken, applyProfile, loadProfile, refreshProfile, userId]);
+
+  useEffect(() => {
+    if (!loading || profile) {
+      setWorkspaceInitTimedOut(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setWorkspaceInitTimedOut(true), WORKSPACE_INIT_TIMEOUT_MS);
+    return () => window.clearTimeout(timer);
+  }, [loading, profile]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -234,6 +365,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       profile,
       loading,
       refreshing,
+      workspaceInitTimedOut,
       signIn: async ({ email, password }) => {
         if (!supabase) {
           throw new Error(
@@ -259,11 +391,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         const { error } = await supabase.auth.signOut();
         if (error) throw error;
+        clearProfileCache();
         queryClient.clear();
       },
       refreshProfile,
+      retryWorkspaceInit,
     }),
-    [supabase, supabaseConfigError, session, profile, loading, refreshing, accessToken, queryClient, refreshProfile],
+    [
+      supabase,
+      supabaseConfigError,
+      session,
+      profile,
+      loading,
+      refreshing,
+      workspaceInitTimedOut,
+      accessToken,
+      queryClient,
+      refreshProfile,
+      retryWorkspaceInit,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -81,7 +81,7 @@ function navItemAllowed(profile: UserProfile, item: NavItem): boolean {
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const { profile, signOut, loading } = useAuth();
+  const { profile, signOut, loading, refreshing, workspaceInitTimedOut, retryWorkspaceInit } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -110,8 +110,26 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   if (loading && !profile) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-stone-50 dark:bg-stone-950 text-stone-500">
-        <div className="animate-pulse">Loading workspace...</div>
+      <div className="min-h-screen flex items-center justify-center bg-stone-50 dark:bg-stone-950 text-stone-500 px-6">
+        <div className="text-center space-y-4 max-w-md">
+          {workspaceInitTimedOut ? (
+            <>
+              <p className="text-stone-700 dark:text-stone-300">
+                Workspace is taking longer than expected. The server may be waking up — try again.
+              </p>
+              <Button
+                type="button"
+                onClick={() => {
+                  void retryWorkspaceInit();
+                }}
+              >
+                Retry
+              </Button>
+            </>
+          ) : (
+            <div className="animate-pulse">Loading workspace...</div>
+          )}
+        </div>
       </div>
     );
   }
@@ -245,6 +263,14 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       </aside>
 
       <main className="relative z-10 min-h-screen">
+        {refreshing ? (
+          <div
+            className="sticky top-0 z-20 border-b border-amber-200/80 dark:border-amber-800/60 bg-amber-50/95 dark:bg-amber-950/80 px-4 py-2 text-center text-xs font-medium text-amber-900 dark:text-amber-200"
+            role="status"
+          >
+            Reconnecting…
+          </div>
+        ) : null}
         <div className="p-6 md:p-8">{children}</div>
       </main>
     </div>

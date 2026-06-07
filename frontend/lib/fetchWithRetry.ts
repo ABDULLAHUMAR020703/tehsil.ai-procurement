@@ -30,6 +30,8 @@ export async function fetchWithRetry(
       return res;
     } catch (err) {
       lastError = err;
+      if (init?.signal?.aborted) break;
+      if (err instanceof DOMException && err.name === 'AbortError') break;
       if (attempt >= retries) break;
       await sleep(baseDelayMs * (attempt + 1));
     }
