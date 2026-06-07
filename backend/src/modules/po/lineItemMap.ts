@@ -28,6 +28,7 @@ export const OPTIONAL_HEADER_TO_COLUMN: Record<string, string> = {
   acceptancerejectedamount: 'acceptance_rejected_amount',
   wnd: 'wnd',
   pendingtoapply: 'pending_to_apply',
+  remainingamount: 'remaining_amount',
   milestonestatus: 'milestone_status',
   postatus: 'po_status',
   confirmationstatus: 'confirmation_status',

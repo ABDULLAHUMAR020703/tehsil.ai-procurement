@@ -6,7 +6,10 @@ import { OPTIONAL_HEADER_TO_COLUMN } from './lineItemMap';
 export type ParsedPoRow = {
   po_number: string;
   vendor: string;
-  total_value: number;
+  total_value: number | null;
+  is_cancelled: boolean;
+  dash_fields: string[];
+  source_row: Record<string, unknown>;
 };
 
 export type ParsedLineItemRow = {
@@ -14,8 +17,11 @@ export type ParsedLineItemRow = {
   po: string;
   item_code: string;
   description: string;
-  unit_price: number;
-  po_amount: number;
+  unit_price: number | null;
+  po_amount: number | null;
+  is_cancelled: boolean;
+  dash_fields: string[];
+  source_row: Record<string, unknown>;
   extras: Record<string, unknown>;
 };
 
@@ -62,6 +68,16 @@ function isDashPlaceholder(value: string): boolean {
   return !normalized || /^[-\u2013\u2014]+$/.test(normalized);
 }
 
+function isExplicitCancelledValue(value: unknown): boolean {
+  return typeof value === 'string' && /^po\s+cancell?ed$/i.test(value.trim());
+}
+
+function isSourceDash(value: unknown): boolean {
+  if (typeof value !== 'string') return false;
+  const normalized = value.trim().replace(/\u00a0/g, ' ').replace(/\s+/g, '');
+  return !!normalized && /^[-\u2013\u2014]+$/.test(normalized);
+}
+
 function parseMoney(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value !== 'string') throw new AppError('Numeric field must be a number or string', 400);
@@ -74,6 +90,12 @@ function parseMoney(value: unknown): number {
 function parseOptionalMoney(value: unknown): number | undefined {
   if (value === null || value === undefined || value === '') return undefined;
   if (typeof value === 'string' && isDashPlaceholder(value)) return undefined;
+  return parseMoney(value);
+}
+
+function parseNullableMoney(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value === 'string' && isDashPlaceholder(value)) return null;
   return parseMoney(value);
 }
 function parseOptionalInt(value: unknown): number | undefined {
@@ -102,6 +124,10 @@ function parseOptionalDate(value: unknown): string | undefined {
 function toRowFromObject(obj: Record<string, unknown>): ParsedPoRow {
   const keys = Object.keys(obj);
   const headerMap = new Map(keys.map((k) => [normalizeHeader(k), k] as const));
+  const is_cancelled = Object.values(obj).some(isExplicitCancelledValue);
+  const dash_fields = Object.entries(obj)
+    .filter(([, value]) => isSourceDash(value))
+    .map(([key]) => key);
 
   const poKey = headerMap.get('ponumber') ?? headerMap.get('po');
   const vendorKey = headerMap.get('vendor');
@@ -113,13 +139,15 @@ function toRowFromObject(obj: Record<string, unknown>): ParsedPoRow {
 
   const po_number = String(obj[poKey] ?? '').trim();
   const vendor = String(obj[vendorKey] ?? '').trim();
-  const total_value = parseMoney(obj[totalKey]);
+  const total_value = parseNullableMoney(obj[totalKey]);
 
   if (!po_number) throw new AppError('po_number cannot be empty', 400);
-  if (!vendor) throw new AppError('vendor cannot be empty', 400);
-  if (total_value <= 0) throw new AppError('total_value must be > 0', 400);
+  if (!is_cancelled) {
+    if (!vendor) throw new AppError('vendor cannot be empty', 400);
+    if (total_value != null && total_value <= 0) throw new AppError('total_value must be > 0', 400);
+  }
 
-  return { po_number, vendor, total_value };
+  return { po_number, vendor, total_value, is_cancelled, dash_fields, source_row: obj };
 }
 
 function getByCanon(obj: Record<string, unknown>, headerNormToOrig: Map<string, string>, canon: string): unknown {
@@ -131,19 +159,25 @@ function lineItemFromObject(
   obj: Record<string, unknown>,
   headerNormToOrig: Map<string, string>,
 ): ParsedLineItemRow {
+  const is_cancelled = Object.values(obj).some(isExplicitCancelledValue);
+  const dash_fields = Object.entries(obj)
+    .filter(([, value]) => isSourceDash(value))
+    .map(([key]) => key);
   const po_line_sn = String(getByCanon(obj, headerNormToOrig, 'polinesn') ?? '').trim();
   const po = String(getByCanon(obj, headerNormToOrig, 'po') ?? '').trim();
   const item_code = String(getByCanon(obj, headerNormToOrig, 'itemcode') ?? '').trim();
   const description = String(getByCanon(obj, headerNormToOrig, 'description') ?? '').trim();
-  const unit_price = parseMoney(getByCanon(obj, headerNormToOrig, 'unitprice'));
-  const po_amount = parseMoney(getByCanon(obj, headerNormToOrig, 'poamount'));
+  const unit_price = parseNullableMoney(getByCanon(obj, headerNormToOrig, 'unitprice'));
+  const po_amount = parseNullableMoney(getByCanon(obj, headerNormToOrig, 'poamount'));
 
   if (!po_line_sn) throw new AppError('PO+LINE+SN cannot be empty', 400);
   if (!po) throw new AppError('PO cannot be empty', 400);
-  if (!item_code) throw new AppError('Item Code cannot be empty', 400);
-  if (!description) throw new AppError('Description cannot be empty', 400);
-  if (unit_price < 0) throw new AppError('Unit Price cannot be negative', 400);
-  if (po_amount <= 0) throw new AppError('PO Amount must be > 0', 400);
+  if (!is_cancelled) {
+    if (!item_code) throw new AppError('Item Code cannot be empty', 400);
+    if (!description) throw new AppError('Description cannot be empty', 400);
+    if (unit_price != null && unit_price < 0) throw new AppError('Unit Price cannot be negative', 400);
+    if (po_amount != null && po_amount <= 0) throw new AppError('PO Amount must be > 0', 400);
+  }
 
   const extras: Record<string, unknown> = {};
   for (const [canon, col] of Object.entries(OPTIONAL_HEADER_TO_COLUMN)) {
@@ -185,6 +219,9 @@ function lineItemFromObject(
     description,
     unit_price,
     po_amount,
+    is_cancelled,
+    dash_fields,
+    source_row: obj,
     extras,
   };
 }
@@ -237,11 +274,12 @@ export function parsePoUploadFile(params: { fileBuffer: Buffer; originalName: st
 }
 
 export function calcRemainingAmount(params: {
-  po_amount: number;
+  po_amount: number | null;
   po_invoiced: number;
   po_acceptance_approved: number;
   pending_to_apply: number;
 }): number {
+  if (params.po_amount == null) return 0;
   const r =
     Number(params.po_amount) -
     Number(params.po_invoiced) -

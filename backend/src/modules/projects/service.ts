@@ -194,6 +194,7 @@ export async function createProjectWithExceptionFlow(input: CreateProjectInput) 
       .select('id, remaining_value')
       .eq('company_id', companyId)
       .eq('id', poId)
+      .eq('status', 'active')
       .single();
     if (poErr || !po) throw poErr ?? new AppError('PO not found', 404);
 
