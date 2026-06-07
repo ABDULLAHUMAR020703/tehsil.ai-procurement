@@ -120,6 +120,7 @@ projectsRouter.get('/', requireRole('admin', 'platform_admin', 'pm', 'dept_head'
         .from('purchase_orders')
         .select('id, po, po_amount, remaining_amount, total_value, remaining_value')
         .eq('company_id', cid)
+        .eq('status', 'active')
         .in('id', poIds);
       if (anchorErr) throw anchorErr;
 
@@ -135,6 +136,7 @@ projectsRouter.get('/', requireRole('admin', 'platform_admin', 'pm', 'dept_head'
           .from('purchase_orders')
           .select('po, po_amount, remaining_amount, total_value, remaining_value')
           .eq('company_id', cid)
+          .eq('status', 'active')
           .in('po', [...poTexts]);
         if (sibErr) throw sibErr;
         for (const r of siblings ?? []) {
@@ -282,6 +284,7 @@ projectsRouter.get('/:id', requireRole('admin', 'platform_admin', 'pm', 'dept_he
         .from('purchase_orders')
         .select('id, po_number, vendor, po, total_value, remaining_value, updated_at, updated_by')
         .eq('company_id', projectAccess.company_id)
+        .eq('status', 'active')
         .eq('id', project.po_id)
         .maybeSingle();
       if (po) {

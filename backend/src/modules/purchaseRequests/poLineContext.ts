@@ -44,6 +44,7 @@ export async function fetchPoLineById(id: string, companyId: string): Promise<Po
     .select(LINE_SELECT)
     .eq('id', id)
     .eq('company_id', companyId)
+    .eq('status', 'active')
     .maybeSingle();
   if (error) throw error;
   const row = (data as PoLineSnapshot | null) ?? null;
@@ -123,6 +124,7 @@ export async function resolvePoLineForProject(params: {
         .from('purchase_orders')
         .select(LINE_SELECT)
         .eq('company_id', companyId)
+        .eq('status', 'active')
         .eq('po_line_sn', sn)
         .maybeSingle();
       if (error) throw error;
@@ -149,6 +151,7 @@ export async function resolvePoLineForProject(params: {
         .from('purchase_orders')
         .select(LINE_SELECT)
         .eq('company_id', companyId)
+        .eq('status', 'active')
         .eq('po', poText);
       if (error) throw error;
       const found =
@@ -264,6 +267,7 @@ export async function loadAnchorsForProjectIds(
     .from('purchase_orders')
     .select('id, po, po_line_sn, item_code')
     .eq('company_id', companyId)
+    .eq('status', 'active')
     .in('id', poIds);
   if (poErr) throw poErr;
   const poById = new Map((pos ?? []).map((r) => [r.id as string, r as PoAnchor]));

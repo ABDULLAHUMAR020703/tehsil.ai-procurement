@@ -34,6 +34,7 @@ const PO_INSERT_COLUMNS = new Set<string>([
   'updated_by',
   'department',
   'status',
+  'source_row',
   ...Object.values(OPTIONAL_HEADER_TO_COLUMN),
 ]);
 
@@ -69,12 +70,16 @@ export function lineItemToPayload(
   const pending_to_apply =
     row.extras.pending_to_apply !== undefined ? num(row.extras.pending_to_apply, 0) : num(ex.pending_to_apply, 0);
 
-  const remaining_amount = calcRemainingAmount({
-    po_amount,
-    po_invoiced,
-    po_acceptance_approved,
-    pending_to_apply,
-  });
+  const sourceRemaining =
+    row.extras.remaining_amount !== undefined ? num(row.extras.remaining_amount, NaN) : NaN;
+  const remaining_amount = Number.isFinite(sourceRemaining)
+    ? sourceRemaining
+    : calcRemainingAmount({
+        po_amount,
+        po_invoiced,
+        po_acceptance_approved,
+        pending_to_apply,
+      });
 
   const customerStr =
     row.extras.customer !== undefined ? String(row.extras.customer).trim() : String(ex.customer ?? '').trim();
@@ -83,6 +88,7 @@ export function lineItemToPayload(
   delete rest.po_invoiced;
   delete rest.po_acceptance_approved;
   delete rest.pending_to_apply;
+  delete rest.remaining_amount;
 
   const department =
     options.enforceUploaderDepartment ??
@@ -101,7 +107,7 @@ export function lineItemToPayload(
     po_invoiced,
     po_acceptance_approved,
     pending_to_apply,
-    status: 'active',
+    status: row.is_cancelled ? 'cancelled' : 'active',
     po_acceptance_pending:
       row.extras.po_acceptance_pending !== undefined
         ? num(row.extras.po_acceptance_pending, 0)
@@ -114,11 +120,16 @@ export function lineItemToPayload(
     remaining_amount,
     po_number: row.po,
     vendor: customerStr || 'Unknown',
-    total_value: po_amount,
+    total_value: po_amount ?? 0,
     remaining_value: remaining_amount,
     uploaded_by: actorUserId,
     updated_by: actorUserId,
     department,
+    source_row: {
+      ...row.source_row,
+      _dash_fields: row.dash_fields,
+      _explicit_cancelled: row.is_cancelled,
+    },
   };
 
   for (const k of Object.keys(base)) {
@@ -165,6 +176,12 @@ export async function handleLineItemUpload(params: {
   inserted: number;
   updated: number;
   failed: number;
+  activeInserted: number;
+  activeUpdated: number;
+  explicitCancelled: number;
+  dashRows: number;
+  totalActivePos: number;
+  totalCancelledPos: number;
   cancelled: number;
   cancelledPos: string[];
   cancelledAt: string;
@@ -173,6 +190,9 @@ export async function handleLineItemUpload(params: {
 }> {
   const { rows, actorUserId, actorRole, actorDepartment, companyId, req } = params;
   const enforceDept = isDeptManagerRole(actorRole) ? actorDepartment : null;
+  const explicitCancelledPoSet = new Set(rows.filter((r) => r.is_cancelled).map((r) => r.po).filter(Boolean));
+  const explicitCancelled = explicitCancelledPoSet.size;
+  const dashRows = rows.filter((r) => r.dash_fields.length > 0).length;
 
   if (req) logPoUpload(req, 'db_prepare', { rowCount: rows.length, companyId });
 
@@ -201,7 +221,11 @@ export async function handleLineItemUpload(params: {
 
   for (const [index, row] of rows.entries()) {
     const existing = existingBySn.get(row.po_line_sn) ?? null;
-    const payload = lineItemToPayload(row, existing, actorUserId, {
+    const effectiveRow =
+      explicitCancelledPoSet.has(row.po) && !row.is_cancelled
+        ? { ...row, is_cancelled: true }
+        : row;
+    const payload = lineItemToPayload(effectiveRow, existing, actorUserId, {
       enforceUploaderDepartment: enforceDept,
       companyId,
     });
@@ -219,6 +243,8 @@ export async function handleLineItemUpload(params: {
 
   let inserted = 0;
   let updated = 0;
+  let activeInserted = 0;
+  let activeUpdated = 0;
   let failed = 0;
   let firstEntityId: string | null = null;
   const failures: string[] = [];
@@ -234,6 +260,7 @@ export async function handleLineItemUpload(params: {
         .select('id');
       if (insErr) throw insErr;
       inserted += insRows?.length ?? chunk.length;
+      activeInserted += chunk.filter((row) => row.status !== 'cancelled').length;
       const first = insRows?.[0]?.id as string | undefined;
       if (first && !firstEntityId) firstEntityId = first;
     } catch (chunkErr) {
@@ -251,6 +278,7 @@ export async function handleLineItemUpload(params: {
           const ins = await insertOnePoRow(rowPayload, companyId);
           if (ins?.id) {
             inserted += 1;
+            if (rowPayload.status !== 'cancelled') activeInserted += 1;
             if (!firstEntityId) firstEntityId = ins.id;
           }
         } catch (rowErr) {
@@ -272,6 +300,7 @@ export async function handleLineItemUpload(params: {
         .single();
       if (updErr) throw updErr;
       updated += 1;
+      if (item.payload.status !== 'cancelled') activeUpdated += 1;
       if (upd?.id && !firstEntityId) firstEntityId = upd.id as string;
     } catch (err) {
       failed += 1;
@@ -331,11 +360,27 @@ export async function handleLineItemUpload(params: {
     if (req) logPoUpload(req, 'cancel_failed', { error: cancelErr instanceof Error ? cancelErr.message : String(cancelErr) });
   }
 
+  const countQuery = supabaseAdmin
+    .from('purchase_orders')
+    .select('id, po, po_number, status', { count: 'exact' })
+    .eq('company_id', companyId);
+  const { data: allStatusRows } = await countQuery;
+  const poKey = (r: { id: unknown; po?: unknown; po_number?: unknown }) =>
+    String(r.po ?? r.po_number ?? r.id).trim() || String(r.id);
+  const totalActivePos = new Set((allStatusRows ?? []).filter((r) => r.status !== 'cancelled').map(poKey)).size;
+  const totalCancelledPos = new Set((allStatusRows ?? []).filter((r) => r.status === 'cancelled').map(poKey)).size;
+
   return {
     totalRows: rows.length,
     inserted,
     updated,
     failed,
+    activeInserted,
+    activeUpdated,
+    explicitCancelled,
+    dashRows,
+    totalActivePos,
+    totalCancelledPos,
     cancelled,
     cancelledPos,
     cancelledAt,

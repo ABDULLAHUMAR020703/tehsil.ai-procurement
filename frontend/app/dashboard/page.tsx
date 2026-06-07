@@ -57,6 +57,8 @@ type PoGroup = {
   vendor: string | null;
   total_amount: number;
   remaining_amount: number;
+  total_amount_display?: number | '-';
+  remaining_amount_display?: number | '-';
   total_value: number;
   remaining_value: number;
   anchor_po_line_id: string;
@@ -73,6 +75,8 @@ type PoGroup = {
     unit_price: number | null;
     po_amount: number;
     remaining_amount: number;
+    po_amount_display?: number | '-';
+    remaining_amount_display?: number | '-';
   }>;
   po_last_transaction?: {
     po_id: string;
@@ -96,7 +100,9 @@ type PoGroup = {
   };
 };
 
-function formatCurrency(amount: number) {
+function formatCurrency(amount: number | string) {
+  if (amount === '-') return '-';
+  amount = Number(amount);
   if (!Number.isFinite(amount)) return '—';
   return new Intl.NumberFormat('en-PK', { maximumFractionDigits: 2 }).format(amount);
 }
@@ -720,9 +726,11 @@ export default function DashboardPage() {
                                 <td className="px-2 py-1.5 text-muted-foreground whitespace-nowrap">
                                   {it.line_no ?? it.po_line_sn ?? '—'}
                                 </td>
-                                <td className="px-2 py-1.5 text-right tabular-nums">{formatCurrency(it.po_amount)}</td>
+                                <td className="px-2 py-1.5 text-right tabular-nums">
+                                  {formatCurrency(it.po_amount_display ?? it.po_amount)}
+                                </td>
                                 <td className="px-2 py-1.5 text-right tabular-nums text-orange-900 dark:text-orange-300 font-medium">
-                                  {formatCurrency(it.remaining_amount)}
+                                  {formatCurrency(it.remaining_amount_display ?? it.remaining_amount)}
                                 </td>
                               </tr>
                             ))}

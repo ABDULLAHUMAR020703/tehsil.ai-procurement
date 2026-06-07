@@ -18,8 +18,15 @@ type UploadResult = {
   totalRows?: number;
   inserted?: number;
   updated?: number;
+  activeInserted?: number;
+  activeUpdated?: number;
   failed?: number;
+  explicitCancelled?: number;
+  dashRows?: number;
   cancelled?: number;
+  missingCancelled?: number;
+  totalActivePos?: number;
+  totalCancelledPos?: number;
   cancelledPos?: string[];
   cancelledAt?: string;
   skipped?: number;
@@ -108,12 +115,20 @@ export default function PoUploadPage() {
                   <div className="text-sm font-medium text-emerald-900 dark:text-emerald-200">Upload summary</div>
                   <ul className="text-sm text-emerald-900 dark:text-emerald-200 space-y-1 list-disc pl-5">
                     <li>Total rows: {result.totalRows ?? '-'}</li>
-                    <li>Inserted: {result.inserted ?? 0}</li>
-                    <li>Updated: {result.updated ?? 0}</li>
+                    <li>Active POs added: {result.activeInserted ?? result.inserted ?? 0}</li>
+                    <li>Active POs updated: {result.activeUpdated ?? result.updated ?? 0}</li>
                     <li>Failed: {result.failed ?? 0}</li>
-                    {result.mode === 'line_items' && (result.cancelled ?? 0) > 0 ? (
-                      <li className="text-amber-700 dark:text-amber-400">Cancelled (not in sheet): {result.cancelled}</li>
+                    {result.explicitCancelled != null ? (
+                      <li>Cancelled POs detected in file: {result.explicitCancelled}</li>
                     ) : null}
+                    {result.dashRows != null ? <li>Rows containing "-": {result.dashRows}</li> : null}
+                    {result.mode === 'line_items' && (result.cancelled ?? 0) > 0 ? (
+                      <li className="text-amber-700 dark:text-amber-400">
+                        POs automatically cancelled (missing from latest upload): {result.missingCancelled ?? result.cancelled}
+                      </li>
+                    ) : null}
+                    {result.totalActivePos != null ? <li>Total active POs: {result.totalActivePos}</li> : null}
+                    {result.totalCancelledPos != null ? <li>Total cancelled POs: {result.totalCancelledPos}</li> : null}
                     {result.mode === 'legacy_vendor' && result.skipped != null ? (
                       <li>Vendor merge (extra rows): {result.skipped}</li>
                     ) : null}

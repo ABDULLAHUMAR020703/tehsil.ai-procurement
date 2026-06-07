@@ -119,7 +119,14 @@ async function handlePoUpload(
         inserted: result.inserted,
         updated: result.updated,
         failed: result.failed,
+        activeInserted: result.activeInserted,
+        activeUpdated: result.activeUpdated,
+        explicitCancelled: result.explicitCancelled,
+        dashRows: result.dashRows,
         cancelled: result.cancelled,
+        missingCancelled: result.cancelledPos.length,
+        totalActivePos: result.totalActivePos,
+        totalCancelledPos: result.totalCancelledPos,
         cancelledPos: result.cancelledPos.length > 0 ? result.cancelledPos : undefined,
         cancelledAt: result.cancelledPos.length > 0 ? result.cancelledAt : undefined,
         failures: result.failures,
@@ -134,20 +141,37 @@ async function handlePoUpload(
     const rows = parsed.rows;
     if (rows.length === 0) throw new AppError('No valid PO rows found', 400);
 
-    const aggregatedByVendor = new Map<string, { vendorDisplay: string; po_number: string; total_value: number; rowCount: number }>();
+    const aggregatedByVendor = new Map<
+      string,
+      {
+        vendorDisplay: string;
+        po_number: string;
+        total_value: number;
+        rowCount: number;
+        is_cancelled: boolean;
+        dash_fields: string[];
+        source_rows: Record<string, unknown>[];
+      }
+    >();
     for (const r of rows) {
       const key = normalizeVendor(r.vendor);
       const prev = aggregatedByVendor.get(key);
       if (prev) {
-        prev.total_value += Number(r.total_value);
+        prev.total_value += Number(r.total_value ?? 0);
         prev.po_number = r.po_number;
         prev.rowCount += 1;
+        prev.is_cancelled = prev.is_cancelled || r.is_cancelled;
+        prev.dash_fields.push(...r.dash_fields);
+        prev.source_rows.push(r.source_row);
       } else {
         aggregatedByVendor.set(key, {
           vendorDisplay: r.vendor.trim(),
           po_number: r.po_number,
-          total_value: Number(r.total_value),
+          total_value: Number(r.total_value ?? 0),
           rowCount: 1,
+          is_cancelled: r.is_cancelled,
+          dash_fields: [...r.dash_fields],
+          source_rows: [r.source_row],
         });
       }
     }
@@ -189,6 +213,8 @@ async function handlePoUpload(
             remaining_value: Number(existing.remaining_value) + Number(item.total_value),
             po_number: item.po_number,
             vendor: item.vendorDisplay,
+            status: item.is_cancelled ? 'cancelled' : 'active',
+            source_row: { rows: item.source_rows, _dash_fields: item.dash_fields, _explicit_cancelled: item.is_cancelled },
             uploaded_by: actorUserId,
             updated_by: actorUserId,
           })
@@ -208,6 +234,8 @@ async function handlePoUpload(
             vendor: item.vendorDisplay,
             total_value: item.total_value,
             remaining_value: item.total_value,
+            status: item.is_cancelled ? 'cancelled' : 'active',
+            source_row: { rows: item.source_rows, _dash_fields: item.dash_fields, _explicit_cancelled: item.is_cancelled },
             uploaded_by: actorUserId,
             updated_by: actorUserId,
             company_id: cid,
@@ -303,9 +331,10 @@ poRouter.get('/', requireRole('admin', 'platform_admin', 'pm', 'dept_head', 'emp
   let q = supabaseAdmin
     .from('purchase_orders')
     .select(
-      'id, po_number, vendor, total_value, remaining_value, uploaded_by, created_at, updated_at, updated_by, po, po_line_sn, item_code, description, unit_price, line_no, department, project_name, po_amount, remaining_amount, issue_date, customer',
+      'id, po_number, vendor, total_value, remaining_value, uploaded_by, created_at, updated_at, updated_by, po, po_line_sn, item_code, description, unit_price, line_no, department, project_name, po_amount, remaining_amount, issue_date, customer, source_row',
     )
     .eq('company_id', cid)
+    .eq('status', 'active')
     .order('created_at', { ascending: false })
     .limit(500);
 

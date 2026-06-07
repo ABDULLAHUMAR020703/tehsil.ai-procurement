@@ -41,7 +41,8 @@ create table if not exists public.purchase_orders (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   updated_by uuid references public.users (id) on delete set null,
-  status text not null default 'active' check (status in ('active', 'cancelled'))
+  status text not null default 'active' check (status in ('active', 'cancelled')),
+  source_row jsonb
 );
 
 create index if not exists purchase_orders_remaining_idx on public.purchase_orders (remaining_value);

@@ -95,6 +95,7 @@ export async function createPurchaseRequest(params: {
       .select('id, po, po_line_sn, item_code')
       .eq('company_id', companyId)
       .eq('id', project.po_id)
+      .eq('status', 'active')
       .single();
     if (!aErr && a) anchorPo = a as PoAnchor;
   }
@@ -140,6 +141,7 @@ export async function createPurchaseRequest(params: {
       .from('purchase_orders')
       .select('id, po, remaining_amount, item_code, unit_price')
       .eq('company_id', companyId)
+      .eq('status', 'active')
       .eq('po_line_sn', snTrim)
       .maybeSingle();
     if (lrErr) throw lrErr;
@@ -224,6 +226,7 @@ export async function createPurchaseRequest(params: {
         .select('remaining_value')
         .eq('company_id', companyId)
         .eq('id', project.po_id)
+        .eq('status', 'active')
         .single();
       if (poErr || !po) throw poErr ?? new AppError('PO not found', 404);
       remainingValue = Number(po.remaining_value);

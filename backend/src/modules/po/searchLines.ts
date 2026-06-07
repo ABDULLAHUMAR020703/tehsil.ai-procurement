@@ -55,6 +55,7 @@ export async function searchPoLinesForProject(params: {
     .from('purchase_orders')
     .select('id, po_line_sn, item_code, description, unit_price, remaining_amount, po, line_no')
     .eq('company_id', companyId)
+    .eq('status', 'active')
     .not('po_line_sn', 'is', null);
 
   if (poText) {
