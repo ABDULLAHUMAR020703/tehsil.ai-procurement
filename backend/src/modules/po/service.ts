@@ -99,11 +99,6 @@ function parseNullableMoney(value: unknown): number | null {
   return parseMoney(value);
 }
 
-function parseNullableAmount(value: unknown): number | null {
-  const parsed = parseNullableMoney(value);
-  if (parsed === 0) return null;
-  return parsed;
-}
 function parseOptionalInt(value: unknown): number | undefined {
   if (value === null || value === undefined || value === '') return undefined;
   if (typeof value === 'number' && Number.isInteger(value)) return value;
@@ -145,12 +140,12 @@ function toRowFromObject(obj: Record<string, unknown>): ParsedPoRow {
 
   const po_number = String(obj[poKey] ?? '').trim();
   const vendor = String(obj[vendorKey] ?? '').trim();
-  const total_value = parseNullableAmount(obj[totalKey]);
+  const total_value = parseNullableMoney(obj[totalKey]);
 
   if (!po_number) throw new AppError('po_number cannot be empty', 400);
   if (!is_cancelled) {
     if (!vendor) throw new AppError('vendor cannot be empty', 400);
-    if (total_value != null && total_value <= 0) throw new AppError('total_value must be > 0', 400);
+    if (total_value != null && total_value < 0) throw new AppError('total_value cannot be negative', 400);
   }
 
   return { po_number, vendor, total_value, is_cancelled, dash_fields, source_row: obj };
@@ -174,7 +169,7 @@ function lineItemFromObject(
   const item_code = String(getByCanon(obj, headerNormToOrig, 'itemcode') ?? '').trim();
   const description = String(getByCanon(obj, headerNormToOrig, 'description') ?? '').trim();
   const unit_price = parseNullableMoney(getByCanon(obj, headerNormToOrig, 'unitprice'));
-  const po_amount = parseNullableAmount(getByCanon(obj, headerNormToOrig, 'poamount'));
+  const po_amount = parseNullableMoney(getByCanon(obj, headerNormToOrig, 'poamount'));
 
   if (!po_line_sn) throw new AppError('PO+LINE+SN cannot be empty', 400);
   if (!po) throw new AppError('PO cannot be empty', 400);
@@ -182,7 +177,7 @@ function lineItemFromObject(
     if (!item_code) throw new AppError('Item Code cannot be empty', 400);
     if (!description) throw new AppError('Description cannot be empty', 400);
     if (unit_price != null && unit_price < 0) throw new AppError('Unit Price cannot be negative', 400);
-    if (po_amount != null && po_amount <= 0) throw new AppError('PO Amount must be > 0', 400);
+    if (po_amount != null && po_amount < 0) throw new AppError('PO Amount cannot be negative', 400);
   }
 
   const extras: Record<string, unknown> = {};
