@@ -120,7 +120,7 @@ export function lineItemToPayload(
     remaining_amount,
     po_number: row.po,
     vendor: customerStr || 'Unknown',
-    total_value: po_amount ?? 0,
+    total_value: Math.max(0, po_amount ?? 0),
     remaining_value: remaining_amount,
     uploaded_by: actorUserId,
     updated_by: actorUserId,

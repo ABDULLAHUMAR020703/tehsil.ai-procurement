@@ -121,6 +121,8 @@ function displayPoLabel(rows: PurchaseOrderDbRow[]): string {
 
 function toItem(row: PurchaseOrderDbRow): PurchaseOrderGroupItem {
   const up = num(row.unit_price, NaN);
+  const rawPoAmount = num(row.po_amount, NaN);
+  const rawRemaining = num(row.remaining_amount, NaN);
   const { amount, remaining } = budgetPairFromRow(row);
   return {
     id: row.id,
@@ -132,8 +134,12 @@ function toItem(row: PurchaseOrderDbRow): PurchaseOrderGroupItem {
     po_amount: amount,
     remaining_amount: remaining,
     unit_price_display: sourceWasDash(row, 'unitprice') ? '-' : Number.isFinite(up) ? up : 0,
-    po_amount_display: sourceWasDash(row, 'poamount') ? '-' : amount,
-    remaining_amount_display: sourceWasDash(row, 'remainingamount') ? '-' : remaining,
+    po_amount_display: sourceWasDash(row, 'poamount') ? '-' : Number.isFinite(rawPoAmount) ? rawPoAmount : amount,
+    remaining_amount_display: sourceWasDash(row, 'remainingamount')
+      ? '-'
+      : Number.isFinite(rawRemaining)
+        ? rawRemaining
+        : remaining,
     department: row.department,
     uploaded_by: row.uploaded_by,
     created_at: row.created_at,

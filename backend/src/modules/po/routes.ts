@@ -209,8 +209,8 @@ async function handlePoUpload(
         const { data: upd, error: updErr } = await supabaseAdmin
           .from('purchase_orders')
           .update({
-            total_value: Number(existing.total_value) + Number(item.total_value),
-            remaining_value: Number(existing.remaining_value) + Number(item.total_value),
+            total_value: Math.max(0, Number(existing.total_value) + Number(item.total_value)),
+            remaining_value: Math.max(0, Number(existing.remaining_value) + Number(item.total_value)),
             po_number: item.po_number,
             vendor: item.vendorDisplay,
             status: item.is_cancelled ? 'cancelled' : 'active',
@@ -232,8 +232,8 @@ async function handlePoUpload(
           .insert({
             po_number: item.po_number,
             vendor: item.vendorDisplay,
-            total_value: item.total_value,
-            remaining_value: item.total_value,
+            total_value: Math.max(0, item.total_value),
+            remaining_value: Math.max(0, item.total_value),
             status: item.is_cancelled ? 'cancelled' : 'active',
             source_row: { rows: item.source_rows, _dash_fields: item.dash_fields, _explicit_cancelled: item.is_cancelled },
             uploaded_by: actorUserId,
