@@ -3,6 +3,32 @@ import multer from 'multer';
 import { AppError } from '../utils/errors';
 import { isPostgrestError, postgrestErrorFields, postgrestErrorMessage } from '../utils/supabaseError';
 
+function errorTypeFor(err: unknown, status: number): string {
+  if (err instanceof multer.MulterError) return 'upload_error';
+  if (isPostgrestError(err)) {
+    if (err.code === '23505') return 'duplicate_key';
+    return 'database_error';
+  }
+  if (err instanceof AppError) {
+    if (status === 400) return 'validation_error';
+    if (status === 409) return 'conflict_error';
+    return 'application_error';
+  }
+  if (status === 413) return 'upload_error';
+  if (status >= 500) return 'server_error';
+  return 'request_error';
+}
+
+function errorCodeFor(err: unknown, details?: unknown): string | undefined {
+  if (isPostgrestError(err) && err.code) return err.code;
+  if (err instanceof multer.MulterError) return err.code;
+  if (details && typeof details === 'object' && details !== null && !Array.isArray(details)) {
+    const code = (details as Record<string, unknown>).errorCode;
+    if (typeof code === 'string' && code) return code;
+  }
+  return undefined;
+}
+
 function normalizeErr(err: unknown): {
   status: number;
   message: string;
@@ -59,11 +85,16 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
   else console.error('[request_error]', logPayload);
 
   const payload: Record<string, unknown> = { message };
+  payload.errorType = errorTypeFor(err, status);
+  const code = errorCodeFor(err, details);
+  if (code) payload.errorCode = code;
 
   if (details !== undefined && details !== null) {
     const d = details;
     if (typeof d === 'object' && !Array.isArray(d)) {
-      Object.assign(payload, d as Record<string, unknown>);
+      const detailObj = d as Record<string, unknown>;
+      if (Array.isArray(detailObj.failures)) payload.failures = detailObj.failures;
+      Object.assign(payload, detailObj);
     } else {
       payload.details = d;
     }
@@ -71,10 +102,9 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
 
   if (isPostgrestError(err)) {
     Object.assign(payload, postgrestErrorFields(err) ?? {});
+    if (err.code && !payload.errorCode) payload.errorCode = err.code;
   } else if (status >= 500 && err instanceof Error) {
     payload.debug = postgrestErrorMessage(err);
-  } else if (process.env.NODE_ENV !== 'production' && err instanceof Error && status >= 500) {
-    payload.debug = err.message;
   }
 
   res.status(status).json(payload);

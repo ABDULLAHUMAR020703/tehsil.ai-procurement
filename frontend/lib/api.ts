@@ -33,12 +33,13 @@ export function formatApiErrorMessage(body: Record<string, unknown>, fallbackSta
   }
   if (typeof body.message === 'string' && body.message.trim()) {
     const parts: string[] = [];
-    if (typeof body.errorCode === 'string' && body.errorCode) parts.push(`[${body.errorCode}]`);
+    if (typeof body.errorType === 'string' && body.errorType) parts.push(`Type: ${body.errorType}`);
+    if (typeof body.errorCode === 'string' && body.errorCode) parts.push(`Code: ${body.errorCode}`);
     if (typeof body.debug === 'string' && body.debug.trim()) parts.push(body.debug);
     if (Array.isArray(body.failures) && body.failures.length > 0) {
       parts.push(body.failures.slice(0, 5).join('\n'));
     }
-    if (parts.length > 0) return `${body.message.trim()}\n${parts.join('\n')}`;
+    if (parts.length > 0) return `${body.message.trim()}\n\n${parts.join('\n')}`;
     return body.message.trim();
   }
   if (typeof body.error === 'string' && body.error.trim()) return body.error;
@@ -87,12 +88,25 @@ export async function authedUploadFetch<T>(
 export class ApiError extends Error {
   readonly status: number;
   readonly body: Record<string, unknown>;
+  readonly errorType?: string;
+  readonly errorCode?: string;
+  readonly failures?: string[];
 
   constructor(status: number, body: Record<string, unknown>) {
     super(formatApiErrorMessage(body, status));
     this.name = 'ApiError';
     this.status = status;
     this.body = body;
+    this.errorType = typeof body.errorType === 'string' ? body.errorType : undefined;
+    this.errorCode =
+      typeof body.errorCode === 'string'
+        ? body.errorCode
+        : typeof body.code === 'string'
+          ? body.code
+          : undefined;
+    this.failures = Array.isArray(body.failures)
+      ? body.failures.filter((f): f is string => typeof f === 'string')
+      : undefined;
   }
 }
 
