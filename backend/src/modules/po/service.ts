@@ -242,7 +242,7 @@ function loadRawRows(fileBuffer: Buffer, originalName: string): Record<string, u
     const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
-    const jsonRows = XLSX.utils.sheet_to_json(sheet, { defval: null }) as Record<string, unknown>[];
+    const jsonRows = XLSX.utils.sheet_to_json(sheet, { defval: null, raw: false }) as Record<string, unknown>[];
     if (!jsonRows.length) throw new AppError('Excel file contains no rows', 400);
     return jsonRows;
   }
