@@ -19,6 +19,7 @@ import {
   missingMarkerFields,
   rowIsExplicitlyCancelled,
 } from './placeholders';
+import { poNumberFromLineKey, resolvePoLineIdentity } from './poLineIdentity';
 
 export { detectPoFileFormat, normalizeLineHeader } from './lineItemMap';
 export { isExplicitCancelledValue, isMissingValuePlaceholder } from './placeholders';
@@ -33,8 +34,12 @@ export type ParsedPoRow = {
 };
 
 export type ParsedLineItemRow = {
+  /** Canonical key PO|LINE|SN — stored in DB `po_line_sn`. */
   po_line_sn: string;
+  po_line_key: string;
   po: string;
+  line_no: string;
+  sn: string;
   item_code: string;
   description: string;
   unit_price: number | null;
@@ -45,8 +50,14 @@ export type ParsedLineItemRow = {
   extras: Record<string, unknown>;
 };
 
+export type LineItemParseMeta = {
+  totalRowsInFile: number;
+  uniqueRowsProcessed: number;
+  duplicateRowsSkipped: number;
+};
+
 export type PoParseResult =
-  | { mode: 'line_items'; rows: ParsedLineItemRow[] }
+  | ({ mode: 'line_items'; rows: ParsedLineItemRow[] } & LineItemParseMeta)
   | { mode: 'legacy_vendor'; rows: ParsedPoRow[] };
 
 const MONEY_DB_COLUMNS = new Set([
@@ -184,32 +195,6 @@ function parseOptionalExtras(obj: Record<string, unknown>, headerMap: PoHeaderMa
   return extras;
 }
 
-function resolvePoLineSn(obj: Record<string, unknown>, headerMap: PoHeaderMap, rowIndex: number): string {
-  const direct = cellText(resolvePoField(obj, headerMap, 'polinesn'));
-  if (direct) return direct;
-
-  const po = cellText(resolvePoFieldFirst(obj, headerMap, 'po'));
-  const lineNo = cellText(resolvePoField(obj, headerMap, 'lineno'));
-  const shipment = cellText(resolvePoField(obj, headerMap, 'shipmentnumber'));
-  const parts = [po, lineNo, shipment].filter(Boolean);
-  if (parts.length > 0) return parts.join('-');
-
-  return `IMPORT-ROW-${rowIndex}`;
-}
-
-function resolvePo(
-  obj: Record<string, unknown>,
-  headerMap: PoHeaderMap,
-  poLineSn: string,
-  rowIndex: number,
-): string {
-  const direct = cellText(resolvePoFieldFirst(obj, headerMap, 'po'));
-  if (direct) return direct;
-  const derived = derivePoFromLineSn(poLineSn);
-  if (derived) return derived;
-  return `IMPORT-PO-${rowIndex}`;
-}
-
 function lineItemFromObject(
   obj: Record<string, unknown>,
   headerMap: PoHeaderMap,
@@ -218,16 +203,34 @@ function lineItemFromObject(
   const is_cancelled = rowIsExplicitlyCancelled(obj);
   const dash_fields = missingMarkerFields(obj);
 
-  const po_line_sn = resolvePoLineSn(obj, headerMap, rowIndex);
-  const po = resolvePo(obj, headerMap, po_line_sn, rowIndex);
+  const poLineSnRaw = cellText(resolvePoField(obj, headerMap, 'polinesn'));
+  const identity = resolvePoLineIdentity({
+    poLineSnRaw,
+    poFromColumn: cellText(resolvePoFieldFirst(obj, headerMap, 'po')),
+    lineNoFromColumn: cellText(resolvePoField(obj, headerMap, 'lineno')),
+    snFromColumn: cellText(resolvePoField(obj, headerMap, 'shipmentnumber')),
+    rowIndex,
+  });
+
+  const po = identity.po_number || poNumberFromLineKey(identity.po_line_key);
+  const po_line_key = identity.po_line_key;
+  const po_line_sn = po_line_key;
+
   const item_code = cellText(resolvePoFieldFirst(obj, headerMap, 'itemcode'));
   const description = cellText(resolvePoFieldFirst(obj, headerMap, 'description'));
   const unit_price = parseNullableMoney(resolvePoField(obj, headerMap, 'unitprice'));
   const po_amount = parseNullableMoney(resolvePoField(obj, headerMap, 'poamount'));
 
+  const extras = parseOptionalExtras(obj, headerMap);
+  if (identity.line_no) extras.line_no = identity.line_no;
+  if (identity.sn) extras.shipment_number = identity.sn;
+
   return {
     po_line_sn,
+    po_line_key,
     po,
+    line_no: identity.line_no,
+    sn: identity.sn,
     item_code,
     description,
     unit_price,
@@ -235,7 +238,7 @@ function lineItemFromObject(
     is_cancelled,
     dash_fields,
     source_row: obj,
-    extras: parseOptionalExtras(obj, headerMap),
+    extras,
   };
 }
 
@@ -301,21 +304,31 @@ export function parsePoUploadFile(params: { fileBuffer: Buffer; originalName: st
   const headerMap = buildPoHeaderMap(sample);
 
   if (detectPoFileFormat(sample) === 'line_items') {
-    const seen = new Set<string>();
-    const rows: ParsedLineItemRow[] = [];
+    const byKey = new Map<string, ParsedLineItemRow>();
+    let totalRowsInFile = 0;
+    let duplicateRowsSkipped = 0;
+
     for (let i = 0; i < rawRows.length; i++) {
       const obj = rawRows[i]!;
       if (isBlankDataRow(obj)) continue;
+      totalRowsInFile += 1;
       const rowIndex = i + 2;
       const row = lineItemFromObject(obj, headerMap, rowIndex);
-      if (seen.has(row.po_line_sn)) {
-        throw new AppError(`Duplicate PO+LINE+SN in file: ${row.po_line_sn}`, 400);
+      if (byKey.has(row.po_line_key)) {
+        duplicateRowsSkipped += 1;
       }
-      seen.add(row.po_line_sn);
-      rows.push(row);
+      byKey.set(row.po_line_key, row);
     }
+
+    const rows = [...byKey.values()];
     if (rows.length === 0) throw new AppError('No valid PO rows found (file contains only blank rows)', 400);
-    return { mode: 'line_items', rows };
+    return {
+      mode: 'line_items',
+      rows,
+      totalRowsInFile,
+      uniqueRowsProcessed: rows.length,
+      duplicateRowsSkipped,
+    };
   }
 
   const legacyRows: ParsedPoRow[] = [];

@@ -16,9 +16,13 @@ import { authedUploadFetch, NoSessionError } from '../../../lib/api';
 type UploadResult = {
   ok?: boolean;
   mode?: string;
+  uploadBatchId?: string;
   totalRows?: number;
+  uniqueRowsProcessed?: number;
+  duplicateRowsSkipped?: number;
   inserted?: number;
   updated?: number;
+  reactivated?: number;
   activeInserted?: number;
   activeUpdated?: number;
   failed?: number;
@@ -146,9 +150,18 @@ export default function PoUploadPage() {
                 <Card className="p-4 mt-2 border border-emerald-200 dark:border-emerald-700/80 bg-emerald-50 dark:bg-emerald-950/35 space-y-2 shadow-sm">
                   <div className="text-sm font-medium text-emerald-900 dark:text-emerald-200">Upload summary</div>
                   <ul className="text-sm text-emerald-900 dark:text-emerald-200 space-y-1 list-disc pl-5">
-                    <li>Total rows: {result.totalRows ?? '-'}</li>
-                    <li>Active POs added: {result.activeInserted ?? result.inserted ?? 0}</li>
-                    <li>Active POs updated: {result.activeUpdated ?? result.updated ?? 0}</li>
+                    <li>Total rows in file: {result.totalRows ?? '-'}</li>
+                    <li>Unique rows processed: {result.uniqueRowsProcessed ?? result.totalRows ?? '-'}</li>
+                    {(result.duplicateRowsSkipped ?? 0) > 0 ? (
+                      <li>Duplicate rows skipped: {result.duplicateRowsSkipped}</li>
+                    ) : null}
+                    <li>New PO lines inserted: {result.inserted ?? 0}</li>
+                    <li>Existing PO lines updated: {result.updated ?? 0}</li>
+                    {(result.reactivated ?? 0) > 0 ? (
+                      <li>Previously cancelled PO lines reactivated: {result.reactivated}</li>
+                    ) : null}
+                    <li>Active lines added: {result.activeInserted ?? 0}</li>
+                    <li>Active lines updated: {result.activeUpdated ?? 0}</li>
                     <li>Failed: {result.failed ?? 0}</li>
                     {result.explicitCancelled != null ? (
                       <li>Cancelled POs detected in file: {result.explicitCancelled}</li>
@@ -156,7 +169,7 @@ export default function PoUploadPage() {
                     {result.dashRows != null ? <li>Rows containing "-": {result.dashRows}</li> : null}
                     {result.mode === 'line_items' && (result.cancelled ?? 0) > 0 ? (
                       <li className="text-amber-700 dark:text-amber-400">
-                        POs automatically cancelled (missing from latest upload): {result.missingCancelled ?? result.cancelled}
+                        PO lines marked cancelled (missing from latest upload): {result.missingCancelled ?? result.cancelled}
                       </li>
                     ) : null}
                     {result.totalActivePos != null ? <li>Total active POs: {result.totalActivePos}</li> : null}
