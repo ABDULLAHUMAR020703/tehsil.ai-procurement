@@ -1,6 +1,9 @@
 import { supabaseAdmin } from '../../config/supabase';
 import type { UserRole } from '../auth/types';
 import { bypassesDepartmentScope } from '../auth/types';
+import { matchDepartmentCodeFromPoField } from '../departments/service';
+import { fetchActivePurchaseOrderLines } from '../po/fetchPoLines';
+import { budgetPairFromRow, purchaseOrderGroupKey } from '../po/groupByPo';
 
 export type DashboardDrillSection = 'projects' | 'approvals' | 'exceptions' | 'po';
 
@@ -182,62 +185,53 @@ export async function fetchDashboardDepartmentsBreakdown(params: {
   }
 
   if (section === 'po') {
-    const { data: links, error: linkErr } = await supabaseAdmin
-      .from('projects')
-      .select('department_id, po_id')
-      .eq('company_id', companyId)
-      .not('po_id', 'is', null)
-      .in('department_id', allowedCodes);
-    if (linkErr) throw linkErr;
+    const deptCatalog = allDepts.filter((d) => allowedCodes.includes(d.code));
+    const poLines = await fetchActivePurchaseOrderLines(companyId);
 
-    const deptToPoIds = new Map<string, Set<string>>();
-    for (const l of links ?? []) {
-      const d = l.department_id as string;
-      const pid = l.po_id as string;
-      if (!byCode.has(d)) continue;
-      if (!deptToPoIds.has(d)) deptToPoIds.set(d, new Set());
-      deptToPoIds.get(d)!.add(pid);
-    }
+    type PoAgg = {
+      id: string;
+      label: string;
+      vendor: string | null;
+      total_value: number;
+      remaining_value: number;
+      line_count: number;
+    };
+    const deptPoGroups = new Map<string, Map<string, PoAgg>>();
 
-    const allPoIds = [...new Set([...deptToPoIds.values()].flatMap((s) => [...s]))];
-    if (allPoIds.length === 0) {
-      return { section, departments: [...byCode.values()] };
-    }
+    for (const line of poLines) {
+      const deptCode = matchDepartmentCodeFromPoField(line.department, deptCatalog);
+      if (!deptCode || !byCode.has(deptCode)) continue;
 
-    const { data: poRows, error: poErr } = await supabaseAdmin
-      .from('purchase_orders')
-      .select('id, po_number, vendor, total_value, remaining_value')
-      .eq('company_id', companyId)
-      .in('id', allPoIds);
-    if (poErr) throw poErr;
+      const groupKey = purchaseOrderGroupKey(line);
+      const label =
+        String(line.po ?? line.po_number ?? '').trim() ||
+        `Legacy row - ${String(line.id).slice(0, 8)}`;
+      const { amount, remaining } = budgetPairFromRow(line);
 
-    const poMap = new Map((poRows ?? []).map((r) => [r.id as string, r]));
-
-    const projectLinksPerDeptPo = new Map<string, number>();
-    for (const l of links ?? []) {
-      const d = l.department_id as string;
-      const pid = l.po_id as string;
-      const k = `${d}::${pid}`;
-      projectLinksPerDeptPo.set(k, (projectLinksPerDeptPo.get(k) ?? 0) + 1);
-    }
-
-    for (const [dept, ids] of deptToPoIds) {
-      const b = byCode.get(dept);
-      if (!b) continue;
-      for (const poId of ids) {
-        const row = poMap.get(poId);
-        if (!row) continue;
-        const linkKey = `${dept}::${poId}`;
-        b.poRecords.push({
-          id: poId,
-          label: String(row.po_number ?? '').trim() || poId.slice(0, 8),
-          vendor: (row.vendor as string | null) ?? null,
-          total_value: Number(row.total_value ?? 0),
-          remaining_value: Number(row.remaining_value ?? 0),
-          line_count: projectLinksPerDeptPo.get(linkKey) ?? 1,
+      if (!deptPoGroups.has(deptCode)) deptPoGroups.set(deptCode, new Map());
+      const groups = deptPoGroups.get(deptCode)!;
+      const existing = groups.get(groupKey);
+      if (existing) {
+        existing.total_value += amount;
+        existing.remaining_value += remaining;
+        existing.line_count += 1;
+        if (!existing.vendor && line.vendor) existing.vendor = String(line.vendor);
+      } else {
+        groups.set(groupKey, {
+          id: line.id,
+          label,
+          vendor: line.vendor != null ? String(line.vendor) : null,
+          total_value: amount,
+          remaining_value: remaining,
+          line_count: 1,
         });
       }
-      b.poRecords.sort((a, c) => a.label.localeCompare(c.label));
+    }
+
+    for (const [deptCode, groups] of deptPoGroups) {
+      const bucket = byCode.get(deptCode);
+      if (!bucket) continue;
+      bucket.poRecords = [...groups.values()].sort((a, b) => a.label.localeCompare(b.label));
     }
   }
 

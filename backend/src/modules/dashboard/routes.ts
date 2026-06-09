@@ -6,6 +6,7 @@ import { AppError } from '../../utils/errors';
 import { bypassesDepartmentScope } from '../auth/types';
 import { fetchDashboardDepartmentsBreakdown } from './departmentsBreakdown';
 import { fetchActivityFeed } from './service';
+import { countActivePurchaseOrderLines } from '../po/fetchPoLines';
 import { hasPermission, requireAnyPermission } from '../../middleware/permissions';
 import type { AppPermission } from '../permissions/types';
 import { companyScopeForRequest } from '../../tenant/requestCompanyId';
@@ -57,7 +58,6 @@ dashboardRouter.get('/', async (req, res, next) => {
       { count: projectsCount, error: projectsErr },
       { count: pendingApprovalsCount, error: approvalsErr },
       { count: pendingExceptionsCount, error: exceptionsErr },
-      { count: poRecordsCount, error: poErr },
     ] = await Promise.all([
       supabaseAdmin.from('projects').select('*', { count: 'exact', head: true }).eq('company_id', cid),
       supabaseAdmin
@@ -70,13 +70,13 @@ dashboardRouter.get('/', async (req, res, next) => {
         .select('*', { count: 'exact', head: true })
         .eq('company_id', cid)
         .eq('status', 'pending'),
-      supabaseAdmin.from('purchase_orders').select('*', { count: 'exact', head: true }).eq('company_id', cid),
     ]);
+
+    const poRecordsCount = await countActivePurchaseOrderLines(cid);
 
     if (projectsErr) throw projectsErr;
     if (approvalsErr) throw approvalsErr;
     if (exceptionsErr) throw exceptionsErr;
-    if (poErr) throw poErr;
 
     const role = req.auth!.role;
     const actorDepartment = req.auth!.department ?? null;

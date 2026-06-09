@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { AppLayout } from '../../components/AppLayout';
@@ -11,6 +11,7 @@ import { PageContainer } from '../../components/ui/PageContainer';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { PoLineTypeahead, type PoSearchLine } from '../../components/PoLineTypeahead';
 import { useAuth } from '../../features/auth/AuthProvider';
+import { useFormDraft } from '../../hooks/useFormDraft';
 import {
   ApiError,
   authedFetchWithSupabase,
@@ -94,6 +95,49 @@ export default function PurchaseRequestsPage() {
   const [duplicateModalOpen, setDuplicateModalOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitAttempted, setSubmitAttempted] = useState(false);
+
+  type PrFormDraft = {
+    projectId: string;
+    description: string;
+    amount: number;
+    fallbackItemCode: string;
+    requestedQty: string;
+    poLineSn: string | null;
+  };
+
+  const prDraftValues = useMemo<PrFormDraft>(
+    () => ({
+      projectId,
+      description,
+      amount,
+      fallbackItemCode,
+      requestedQty,
+      poLineSn: selectedPoLine?.po_line_sn ?? null,
+    }),
+    [projectId, description, amount, fallbackItemCode, requestedQty, selectedPoLine?.po_line_sn],
+  );
+
+  const { restore: restorePrDraft, clear: clearPrDraft } = useFormDraft(
+    'purchase-request-create',
+    profile?.userId,
+    prDraftValues,
+  );
+
+  const skipProjectResetRef = useRef(false);
+
+  useEffect(() => {
+    if (!profile?.userId) return;
+    const saved = restorePrDraft();
+    if (!saved) return;
+    skipProjectResetRef.current = true;
+    if (typeof saved.projectId === 'string') setProjectId(saved.projectId);
+    if (typeof saved.description === 'string') setDescription(saved.description);
+    if (typeof saved.amount === 'number') setAmount(saved.amount);
+    if (typeof saved.fallbackItemCode === 'string') setFallbackItemCode(saved.fallbackItemCode);
+    if (typeof saved.requestedQty === 'string') setRequestedQty(saved.requestedQty);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- restore once per user
+  }, [profile?.userId]);
+
   const { data: projectsData } = useQuery({
     queryKey: ['projects', 'for-pr'],
     enabled: !!token && !!supabase,
@@ -195,6 +239,10 @@ export default function PurchaseRequestsPage() {
   }, [duplicateItemKey]);
 
   useEffect(() => {
+    if (skipProjectResetRef.current) {
+      skipProjectResetRef.current = false;
+      return;
+    }
     setSelectedPoLine(null);
     setFallbackItemCode('');
     setRequestedQty('');
@@ -252,6 +300,7 @@ export default function PurchaseRequestsPage() {
     onSuccess: () => {
       setError(null);
       setSubmitAttempted(false);
+      clearPrDraft();
       queryClient.invalidateQueries({ queryKey: ['purchase-requests'] });
       queryClient.invalidateQueries({ queryKey: ['approvals'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });

@@ -17,9 +17,16 @@ export function Providers({ children }: { children: React.ReactNode }) {
     defaultOptions: {
       queries: {
         refetchOnMount: true,
-        refetchOnWindowFocus: true,
-        refetchOnReconnect: true,
-        staleTime: 60 * 1000,
+        refetchOnWindowFocus: false,
+        refetchOnReconnect: 'always',
+        staleTime: 5 * 60 * 1000,
+        gcTime: 10 * 60 * 1000,
+        retry: (failureCount, error) => {
+          if (failureCount >= 2) return false;
+          if (error instanceof Error && error.name === 'BackendWakingError') return true;
+          return failureCount < 1;
+        },
+        retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
       },
     },
   }));

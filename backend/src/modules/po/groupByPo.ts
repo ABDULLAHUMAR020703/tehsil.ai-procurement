@@ -1,4 +1,4 @@
-/** Rows returned from GET /api/po before grouping. */
+import { isMissingValuePlaceholder } from './placeholders';
 export type PurchaseOrderDbRow = {
   id: string;
   company_id?: string;
@@ -22,6 +22,7 @@ export type PurchaseOrderDbRow = {
   issue_date: string | null;
   customer: string | null;
   project_name: string | null;
+  status?: string | null;
 };
 
 export type PurchaseOrderGroupItem = {
@@ -87,8 +88,16 @@ function sourceValue(row: PurchaseOrderDbRow, canon: string): unknown {
 }
 
 function sourceWasDash(row: PurchaseOrderDbRow, canon: string): boolean {
+  const source = row.source_row;
+  if (source && typeof source === 'object' && !Array.isArray(source)) {
+    const dashFields = (source as { _dash_fields?: string[] })._dash_fields;
+    if (Array.isArray(dashFields)) {
+      const match = Object.keys(source).find((key) => normalizeSourceHeader(key) === canon);
+      if (match && dashFields.includes(match)) return true;
+    }
+  }
   const raw = sourceValue(row, canon);
-  return typeof raw === 'string' && /^[-\u2013\u2014]+$/.test(raw.trim().replace(/\u00a0/g, ' ').replace(/\s+/g, ''));
+  return raw !== undefined && isMissingValuePlaceholder(raw);
 }
 
 export function budgetPairFromRow(row: PurchaseOrderDbRow): { amount: number; remaining: number } {
