@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { fetchWithRetry } from './fetchWithRetry';
+import { getSessionWithTimeout } from './getSessionWithTimeout';
 
 export { BackendWakingError } from './fetchWithRetry';
 
@@ -138,9 +139,7 @@ export async function authedFetch<T>(
 /** Fresh JWT from Supabase before each request (avoids stale React state after refresh). */
 export async function getAccessTokenFromSupabaseSession(supabase: SupabaseClient | null): Promise<string> {
   if (!supabase) throw new NoSessionError();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  const { session } = await getSessionWithTimeout(supabase);
   const token = session?.access_token;
   if (!token) throw new NoSessionError();
   return token;
