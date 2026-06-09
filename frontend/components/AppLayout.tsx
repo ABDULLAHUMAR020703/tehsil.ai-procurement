@@ -79,17 +79,34 @@ function navItemAllowed(profile: UserProfile, item: NavItem): boolean {
   return hasAppPermission(profile, item.permission);
 }
 
+const WORKSPACE_LOADING_LOG_THROTTLE_MS = 3000;
+
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { profile, signOut, loading, refreshing, workspaceInitTimedOut, retryWorkspaceInit } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+  const workspaceLoadingLogAt = React.useRef(0);
 
   React.useEffect(() => {
     if (!loading && !profile) {
       router.replace('/login');
     }
   }, [loading, profile, router]);
+
+  React.useEffect(() => {
+    if (!loading || profile) return;
+    const now = Date.now();
+    if (now - workspaceLoadingLogAt.current < WORKSPACE_LOADING_LOG_THROTTLE_MS) return;
+    workspaceLoadingLogAt.current = now;
+    console.error('[WORKSPACE_LOADING_SCREEN]', {
+      timestamp: new Date().toISOString(),
+      loading,
+      hasProfile: !!profile,
+      refreshing,
+      workspaceInitTimedOut,
+    });
+  }, [loading, profile, refreshing, workspaceInitTimedOut]);
 
   const { mainNav, platformNav } = useMemo(() => {
     if (!profile) return { mainNav: [] as NavItem[], platformNav: [] as NavItem[] };
